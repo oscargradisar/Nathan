@@ -34,9 +34,9 @@ The owner must never need a terminal, `.env`, or the word "uv" again. Build:
 6. **Packaging:** use PyInstaller (`--windowed`, one folder) with the `static/` folder and `extension/` bundled. Name it `Nathan`, with an icon.
    - Windows: a `.exe` installer (Inno Setup) that adds Start-menu and Desktop shortcuts.
    - macOS: a `.app` in a `.dmg`.
-   - Add a GitHub Actions workflow that builds both on a tag.
+   - Add a GitHub Actions workflow that builds on a tag (`v*`) and publishes a GitHub Release with three downloads: macOS (`.dmg`), Windows ARM64 (`.exe` installer) and Windows x64 (`.exe` installer). In the release notes, the Linux entry is only this link: https://github.com/wine-mirror/wine
    - Build the owner's own platform locally now and put a shortcut on their Desktop.
 7. **Tests:** a smoke test that imports `desktop.py` and starts and stops the server headless, with no window. Everything else is already mocked.
 8. **Gate:** double-click the installed app on this computer, connect, and run a vote task with no terminal. Write `docs/INSTALL.md` (5 steps, screenshots optional) for a friend.
 
-Tick boxes, date gates, commit after each working step, and push. Finish by rewriting the `## Autopilot log` with: what works, how to open the app, and anything the owner must do by hand (for example, publishing the extension to the Chrome Web Store, which needs a one-time $5 developer fee — say so and offer "Load unpacked" as the free path).
+Tick boxes, date gates, commit after each working step, and push. When the app works, tag `v0.1.0` and push the tag so the release builds. Check that all three platform downloads are attached to the release. Finish by rewriting the `## Autopilot log` with: what works, how to open the app, and anything the owner must do by hand (for example, publishing the extension to the Chrome Web Store, which needs a one-time $5 developer fee — say so and offer "Load unpacked" as the free path).
