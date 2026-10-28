@@ -56,6 +56,12 @@ Progress is tracked in `docs/ROADMAP.md`. Claude's standing instructions are in 
 uv sync                    # install dependencies
 uv run python ping.py      # test every provider
 uv run pytest              # tests (no network, no quota used)
+
+uv run nathan connect all  # connect AI accounts (keys go to your OS keychain)
+uv run nathan ask "..."    # auto-routed answer; --mode single|race|vote|critique|plan|agent
+uv run nathan web          # control room in your browser (live lanes, quota, manual lane)
+uv run nathan quota        # free-tier usage in the last 24h
+uv run nathan remember "…" / nathan recall "…"   # long-term memory
 ```
 
 ## Pushing to GitHub
