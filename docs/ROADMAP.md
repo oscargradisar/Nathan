@@ -119,8 +119,8 @@ Full spec: `docs/KEY_ONBOARDING.md`.
 
 ## Tier 7 — An app anyone can install
 
-- [ ] Package as a desktop app (Tauri or pywebview) with the Tier 5 UI inside
-- [ ] First-run screen is the "Connect your AI accounts" wizard; the Helper extension installs from inside it
-- [ ] Keys only in the OS keychain; nothing sent to any Nathan server
-- [ ] Installers for Windows and macOS
+- [x] Package as a desktop app with the Tier 5 UI inside (Edge app window on Windows, pywebview on macOS; PyInstaller)
+- [x] First-run screen is the "Connect your AI accounts" wizard; Get key opens the key page and catches the copied key (Helper built in)
+- [x] Keys only in the OS keychain; nothing sent to any Nathan server
+- [x] Installers for Windows (x64, ARM64) and macOS, built on a v* tag by `.github/workflows/release.yml`
 - [ ] **Gate:** a friend with no setup installs it and runs a vote task within 5 minutes
