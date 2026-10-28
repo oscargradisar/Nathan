@@ -38,10 +38,10 @@ Work top to bottom. Each tier ends with a **gate** — don't move on until it pa
 
 ## Tier 4 — Memory and tools
 
-- [ ] Conversation/result log in SQLite with FTS5 full-text search
-- [ ] Tools: file read/write inside `workspace/`, Python in a subprocess with timeout, URL fetch
-- [ ] Bounded tool-calling loop (step limit) that works across providers
-- [ ] **Gate:** answers questions about a folder of documents and recalls a fact from a previous session
+- [x] Conversation/result log in SQLite with FTS5 full-text search
+- [x] Tools: file read/write inside `workspace/`, Python in a subprocess with timeout, URL fetch
+- [x] Bounded tool-calling loop (step limit) that works across providers
+- [ ] **Gate:** answers questions about a folder of documents and recalls a fact from a previous session — code done — live gate pending (needs keys, run on owner's computer)
 
 ## Tier 4.5 — One-click key connection
 

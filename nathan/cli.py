@@ -66,6 +66,9 @@ def show_answer(ans: Answer, verbose: bool) -> None:
                       f"subtasks · up to {ans.extra.get('max_parallel')} in parallel[/]")
         for tid, r in ans.extra.get("results", {}).items():
             console.print(f"[dim]  {tid}: {r['model'] or 'FAILED ' + r['error'][:80]}[/]")
+    if ans.mode == "agent" and verbose:
+        for call in ans.extra.get("tool_calls", []):
+            console.print(f"[dim]  tool: {call[:120]}[/]")
     if ans.mode == "critique" and verbose:
         console.print(Panel(ans.extra.get("critique", ""), title="critique", border_style="dim",
                             title_align="left"))
@@ -79,11 +82,14 @@ def ask(
     model: Annotated[list[str] | None, typer.Option(
         "--model", "-m", help="provider/model; repeat to ask several models at once")] = None,
     mode: Annotated[str | None, typer.Option(
-        "--mode", help="auto | single | race | vote | critique | plan | each "
+        "--mode", help="auto | single | race | vote | critique | plan | agent | each "
                          "(default: auto, or each with several -m)")
     ] = None,
     n: Annotated[int, typer.Option("--n", help="how many models to fan out to")] = 4,
     quiet: Annotated[bool, typer.Option("--quiet", "-q", help="only the final answer")] = False,
+    no_memory: Annotated[bool, typer.Option(
+        "--no-memory", help="don't use or save conversation memory")] = False,
+    max_steps: Annotated[int, typer.Option("--max-steps", help="agent tool-call limit")] = 8,
 ) -> None:
     """Ask one or more models a question."""
     engine = build_engine()
@@ -93,7 +99,8 @@ def ask(
         try:
             if chosen == "each":
                 return await _ask_models(engine.client, question, model or engine.roster.pick(None, n))
-            ans = await engine.ask(question, mode=chosen, models=model, n=n)
+            ans = await engine.ask(question, mode=chosen, models=model, n=n,
+                                   use_memory=not no_memory, max_steps=max_steps)
             show_answer(ans, verbose=not quiet)
             return 0
         finally:
@@ -134,6 +141,27 @@ def quota() -> None:
         table.add_row(row["ref"], "yes" if row["has_key"] else "[dim]no[/]",
                       str(row["used_requests"]), remaining, status)
     console.print(table)
+
+
+
+@app.command()
+def remember(fact: Annotated[str, typer.Argument(help="Something Nathan should remember")]) -> None:
+    """Save a fact to long-term memory."""
+    engine = build_engine()
+    engine.memory.remember(fact)
+    console.print("[green]saved[/]")
+
+
+@app.command()
+def recall(query: Annotated[str, typer.Argument(help="What to search for")],
+           k: Annotated[int, typer.Option("--k")] = 5) -> None:
+    """Search memory (facts and earlier answers)."""
+    engine = build_engine()
+    hits = engine.memory.search(query, k)
+    if not hits:
+        console.print("[dim]nothing found[/]")
+    for e in hits:
+        console.print(f"[bold]{e.kind}[/] [dim]#{e.id}[/] {e.content[:300]}")
 
 
 if __name__ == "__main__":

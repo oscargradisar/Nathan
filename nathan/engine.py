@@ -10,13 +10,14 @@ from pathlib import Path
 from typing import Any
 
 from nathan.client import Client, Message
-from nathan.config import Provider, data_dir, load_providers
+from nathan.config import Provider, data_dir, load_providers, workspace_dir
 from nathan.errors import NathanError
+from nathan.memory import Memory
 from nathan.patterns import Candidate, fallback, race, vote
 from nathan.quota import QuotaManager
 from nathan.roster import Roster
 
-MODES = ("auto", "single", "race", "vote", "critique", "plan")
+MODES = ("auto", "single", "race", "vote", "critique", "plan", "agent")
 
 
 @dataclass
@@ -33,7 +34,8 @@ class Answer:
 class Engine:
     def __init__(self, providers: dict[str, Provider] | None = None, *,
                  client: Client | None = None, quota: QuotaManager | None = None,
-                 data: Path | None = None) -> None:
+                 data: Path | None = None, memory: Memory | None = None,
+                 workspace: Path | None = None) -> None:
         if client is not None:
             providers = client.providers
         self.providers = providers if providers is not None else load_providers()
@@ -46,6 +48,8 @@ class Engine:
             client.quota = self.quota
         self.client = client
         self.roster = Roster(self.providers, self.quota)
+        self.memory = memory if memory is not None else Memory(self.data / "memory.sqlite")
+        self.workspace = workspace or workspace_dir()
 
     async def close(self) -> None:
         await self.client.close()
@@ -67,11 +71,27 @@ class Engine:
     # ---- one question in, one answer out ----------------------------------------------------
 
     async def ask(self, question: str | list[Message], *, mode: str = "auto",
-                  models: list[str] | None = None, n: int = 4, tags: list[str] | None = None,
-                  extra: list[Candidate] | None = None, **kwargs: Any) -> Answer:
-        messages = ([{"role": "user", "content": question}] if isinstance(question, str)
-                    else question)
+                  use_memory: bool = True, **kwargs: Any) -> Answer:
+        """Answer a question. With use_memory, relevant notes from earlier sessions are
+        added as context, and the exchange is saved for future sessions."""
+        if isinstance(question, str):
+            messages: list[Message] = [{"role": "user", "content": question}]
+            if use_memory:
+                context = self.memory.context_for(question)
+                if context:
+                    messages.insert(0, {"role": "system", "content": context})
+        else:
+            messages = question
+        ans = await self._run(messages, mode=mode, **kwargs)
+        if use_memory and isinstance(question, str):
+            self.memory.log_exchange(question, ans.text, {"mode": ans.mode, "models": ans.models})
+        return ans
+
+    async def _run(self, messages: list[Message], *, mode: str = "auto",
+                   models: list[str] | None = None, n: int = 4, tags: list[str] | None = None,
+                   extra: list[Candidate] | None = None, **kwargs: Any) -> Answer:
         on_event = kwargs.pop("on_event", None)  # progress callback (web UI), not for the API
+        max_steps = kwargs.pop("max_steps", 8)  # agent step limit
         if mode == "single":
             res = await fallback(self.client, self.chain(tags, models), messages, **kwargs)
             return Answer(res.text, mode, [res.ref])
@@ -113,12 +133,21 @@ class Engine:
             question_text = "\n\n".join(str(m["content"]) for m in messages if m["role"] == "user")
             r = await route(self, question_text)
             pattern = r.pattern
-            if pattern == "agent" and not hasattr(self, "agent"):
-                pattern = "single"
-            ans = await self.ask(messages, mode=pattern, models=models, n=n,
+            ans = await self._run(messages, mode=pattern, models=models, n=n,
                                  tags=tags or r.tags or None, extra=extra, on_event=on_event,
-                                 **kwargs)
+                                  max_steps=max_steps, **kwargs)
             ans.note = (ans.note + f" routed: {r.task_type} → {pattern} by {r.by}").strip()
             ans.extra["route"] = r.model_dump()
             return ans
+        if mode == "agent":
+            from nathan.agent import AGENT_SYSTEM, run_agent
+            from nathan.tools import default_toolbox
+
+            toolbox = default_toolbox(self.memory, self.workspace)
+            chain = self.chain(tags or ["tools", "reasoning"], models)
+            messages = [{"role": "system", "content": AGENT_SYSTEM}] + messages
+            r = await run_agent(self.client, chain, messages, toolbox, max_steps=max_steps)
+            return Answer(r.answer, mode, r.models,
+                          note="step limit reached" if r.hit_limit else "",
+                          extra={"tool_calls": [f"{s.name}({s.arguments})" for s in r.tool_calls]})
         raise NathanError(f"unknown mode {mode!r}; choose from {', '.join(MODES)}")

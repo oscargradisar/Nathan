@@ -3,7 +3,8 @@
 # Limits are published free-tier figures (Oct 2026); live limits win when providers report them.
 #
 # tags: what a model is good for (used by the router from Tier 3)
-#   fast, cheap, reasoning, code, long_context, writing, judge, planner
+#   fast, cheap, reasoning, code, long_context, writing, judge, planner,
+#   tools (supports native function calling; others use the text tool protocol)
 
 providers:
   groq:
@@ -12,10 +13,10 @@ providers:
     signup: https://console.groq.com/keys
     models:
       openai/gpt-oss-120b:
-        tags: [reasoning, code, writing, judge, planner]
+        tags: [reasoning, code, writing, judge, planner, tools]
         limits: {rpm: 30, rpd: 1000, tpd: 200000}
       llama-3.3-70b-versatile:
-        tags: [writing, fast]
+        tags: [writing, fast, tools]
         limits: {rpm: 30, rpd: 1000, tpd: 100000}
       llama-3.1-8b-instant:
         tags: [fast, cheap]
@@ -28,7 +29,7 @@ providers:
     models:
       # "-latest" aliases follow Google's current Flash models; check AI Studio for your project's limits
       gemini-flash-latest:
-        tags: [long_context, reasoning, judge, writing, planner]
+        tags: [long_context, reasoning, judge, writing, planner, tools]
         limits: {rpm: 5, rpd: 100}
       gemini-flash-lite-latest:
         tags: [long_context, fast, cheap]
@@ -40,7 +41,7 @@ providers:
     signup: https://cloud.cerebras.ai
     models:
       gpt-oss-120b:
-        tags: [reasoning, code, fast]
+        tags: [reasoning, code, fast, tools]
         limits: {rpm: 30}
       zai-glm-4.7:
         tags: [code, writing]
@@ -63,5 +64,5 @@ providers:
     signup: https://console.mistral.ai/api-keys
     models:
       mistral-small-latest:
-        tags: [writing, fast]
+        tags: [writing, fast, tools]
         limits: {}

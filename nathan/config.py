@@ -17,6 +17,13 @@ ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CONFIG = ROOT / "providers.yaml"
 
 
+def workspace_dir() -> Path:
+    """The only folder Nathan's file tools may read or write (Tier 4)."""
+    path = Path(os.getenv("NATHAN_WORKSPACE", ROOT / "workspace")).resolve()
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def data_dir() -> Path:
     """Where Nathan keeps its SQLite files (quota, memory, cache). Git-ignored."""
     path = Path(os.getenv("NATHAN_DATA", ROOT / "data"))
