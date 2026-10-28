@@ -34,3 +34,21 @@ def test_app_folders(tmp_path, monkeypatch):
     desktop.use_app_folders()
     assert env["NATHAN_KEYCHAIN_ONLY"] == "1"
     assert env["NATHAN_DATA"].startswith(str(tmp_path))
+
+
+def test_starts_without_a_console(tmp_path, monkeypatch):
+    """pythonw and --windowed builds have sys.stdout = None; uvicorn used to crash on that."""
+    import sys
+
+    monkeypatch.setattr(sys, "stdout", None)
+    monkeypatch.setattr(sys, "stderr", None)
+    monkeypatch.setattr(desktop, "user_data_dir", lambda *a, **k: str(tmp_path))
+    monkeypatch.setenv("NATHAN_KEYCHAIN_ONLY", "1")  # so monkeypatch restores it afterwards
+    monkeypatch.setenv("NATHAN_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("NATHAN_WORKSPACE", str(tmp_path / "ws"))
+    opened = []
+    monkeypatch.setattr(desktop, "open_window", lambda url, home, app: opened.append(url))
+    desktop.main()
+    sys.stdout.close()
+    assert opened and opened[0].startswith("http://127.0.0.1:")
+    assert (tmp_path / "nathan.log").exists()

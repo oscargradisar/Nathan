@@ -98,6 +98,11 @@ def open_window(url: str, home: Path, app) -> None:
 
 def main() -> None:
     home = use_app_folders()
+    if sys.stdout is None or sys.stderr is None:
+        # No console (pythonw, or a --windowed build): print() and uvicorn would crash on
+        # None, and errors would vanish. Write them to a log file instead.
+        home.mkdir(parents=True, exist_ok=True)
+        sys.stdout = sys.stderr = open(home / "nathan.log", "a", buffering=1, encoding="utf-8")  # noqa: SIM115
     from nathan.engine import Engine
 
     engine = Engine()
