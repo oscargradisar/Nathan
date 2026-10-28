@@ -97,8 +97,9 @@ async def connect(hub: Hub, provider: str, *, open_browser: Callable[[str], obje
     if method == "extension":
         return await connect_extension(hub, provider, open_browser=open_browser, timeout=timeout,
                                        ask_paste=ask_paste, **{k: v for k, v in kw.items() if k != "http"})
-    if p.signup:
-        open_browser(p.signup)
+    page = (p.onboarding.key_page if p.onboarding else "") or p.signup
+    if page:
+        open_browser(page)
     typed = ask_paste(provider) if ask_paste else None
     if not typed:
         return False, "no key entered"

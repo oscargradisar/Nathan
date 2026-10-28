@@ -16,7 +16,7 @@ function row(p) {
       <div><strong></strong> <span class="badge"></span>
         <div class="muted info"></div></div>
       <div class="actions">
-        <button class="go primary">Connect</button>
+        <button class="go primary">Get key</button>
         <button class="pastebtn">Paste key</button>
         <button class="off">Disconnect</button>
       </div>
@@ -27,7 +27,7 @@ function row(p) {
   badge.textContent = LABEL[p.state] || p.state; badge.className = "badge " + (CLS[p.state] || "");
   const extra = p.missing_env.length ? ` · needs ${p.missing_env.join(", ")} in .env` : "";
   div.querySelector(".info").textContent =
-    `${p.method === "oauth_pkce" ? "sign in with OpenRouter" : p.method === "extension" ? "Helper extension" : "paste key"} · adds ${cap}${extra}` +
+    `${p.method === "oauth_pkce" ? "sign in with OpenRouter" : p.method === "extension" ? "copy the key and it arrives here" : "paste key"} · adds ${cap}${extra}` +
     (p.detail ? ` · ${p.detail}` : "") + (p.note ? ` · ${p.note}` : "");
   div.querySelector(".off").hidden = p.state !== "connected";
   div.querySelector(".go").onclick = () => connect(p.provider);
@@ -39,7 +39,7 @@ function row(p) {
   };
   div.querySelector(".off").onclick = async () => {
     const r = await post(`/api/disconnect/${p.provider}`);
-    if (r.revoke_at && confirm("Removed from this computer. Open the provider page to revoke the key too?")) window.open(r.revoke_at, "_blank");
+    if (r.revoke_at && confirm("Removed from this computer. Open the provider page to revoke the key too?")) post(`/api/key-page/${p.provider}`);
     refresh();
   };
   return div;
@@ -52,12 +52,12 @@ async function refresh() {
   providers.forEach((p) => list.append(row(p)));
   const n = providers.filter((p) => p.state === "connected").length;
   $("summary").textContent = `${n} of ${providers.length} connected`;
+  if (n >= 2 && new URLSearchParams(location.search).has("first")) location.href = "/";
 }
 
 async function connect(name) {
   try {
     const r = await post(`/api/connect/${name}`);
-    if (r.url) window.open(r.url, "_blank");
     if (r.method === "manual") document.querySelector(`#p-${name} .paste`).classList.add("open");
   } catch (e) { alert(e.message); }
   refresh();

@@ -160,12 +160,17 @@ def test_connect_wizard_endpoints(web, monkeypatch):
     cf = next(p for p in listing if p["provider"] == "cloudflare")
     assert "CLOUDFLARE_ACCOUNT_ID" in cf["missing_env"]
 
-    r = client.post("/api/connect/groq", headers=H).json()
-    assert r["method"] == "extension" and "#nathan=" in r["url"]
+    opened: list[str] = []
+    client.app.state.open_browser = opened.append
+    client.app.state.connect_kw = {"use_clipboard": False}
     with client:
+        r = client.post("/api/connect/groq", headers=H).json()
+        assert r["method"] == "extension" and "#nathan=" in r["url"]
         r = client.post("/api/connect/openrouter", headers=H).json()
-    assert r["url"].startswith("https://openrouter.ai/auth?")
-    assert client.post("/api/connect/nvidia", headers=H).json()["method"] == "manual"
+        assert r["url"].startswith("https://openrouter.ai/auth?")
+        r = client.post("/api/connect/nvidia", headers=H).json()
+        assert r["method"] == "manual" and r["url"].startswith("https://")
+    assert len(opened) == 3  # the server opened each key page in the real browser
 
     bad = client.post("/api/keys/manual", json={"provider": "nvidia", "key": "nope"}, headers=H)
     assert bad.status_code == 422

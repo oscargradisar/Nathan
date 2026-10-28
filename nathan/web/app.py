@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import webbrowser
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -197,25 +198,44 @@ def create_app(engine, hub: Hub | None = None) -> FastAPI:
             })
         return {"providers": out}
 
+    # The server opens key pages in the real browser (a desktop window can't open tabs) and
+    # keeps listening in the background: Helper extension, clipboard copy or OAuth callback.
+    app.state.open_browser = webbrowser.open
+    app.state.connect_kw = {}
+    connecting: set[asyncio.Task] = set()  # references so running tasks aren't garbage-collected
+
     @app.post("/api/connect/{provider}")
     async def connect_start(provider: str) -> dict:
-        from nathan.onboarding.connect import connect_oauth
+        from nathan.onboarding.connect import connect
 
         p = engine.providers.get(provider)
         if p is None:
             raise HTTPException(404, "unknown provider")
-        method = p.onboarding.method if p.onboarding else "manual"
-        if method == "oauth_pkce":
-            loop = asyncio.get_running_loop()
-            url_future: asyncio.Future = loop.create_future()
-            task = asyncio.create_task(connect_oauth(hub, provider, open_browser=url_future.set_result))
-            app.state.oauth_task = task  # keep a reference so it isn't garbage-collected
-            url = await asyncio.wait_for(url_future, 5)
-            return {"method": method, "url": url}
-        if method == "extension":
-            return {"method": method, "url": hub.start(provider)}
-        return {"method": "manual", "url": (p.onboarding.key_page if p.onboarding else "")
-                or p.signup or "", "note": p.onboarding.note if p.onboarding else ""}
+        opened: asyncio.Future = asyncio.get_running_loop().create_future()
+
+        def open_browser(url: str) -> None:
+            if not opened.done():
+                opened.set_result(url)
+            app.state.open_browser(url)
+
+        task = asyncio.create_task(connect(hub, provider, open_browser=open_browser,
+                                           **app.state.connect_kw))
+        connecting.add(task)
+        task.add_done_callback(connecting.discard)
+        await asyncio.wait({opened, task}, timeout=5, return_when=asyncio.FIRST_COMPLETED)
+        url = opened.result() if opened.done() else ""
+        return {"method": p.onboarding.method if p.onboarding else "manual", "url": url,
+                "note": p.onboarding.note if p.onboarding else ""}
+
+    @app.post("/api/key-page/{provider}")
+    async def open_key_page(provider: str) -> dict:
+        p = engine.providers.get(provider)
+        if p is None:
+            raise HTTPException(404, "unknown provider")
+        page = (p.onboarding.key_page if p.onboarding else "") or p.signup
+        if page:
+            app.state.open_browser(page)
+        return {"ok": bool(page)}
 
     @app.post("/api/keys/manual")
     async def manual_key(body: KeyIn) -> dict:

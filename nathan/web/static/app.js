@@ -122,5 +122,6 @@ async function init() {
   $("manual-add").onclick = addManual;
   $("quota-refresh").onclick = loadQuota;
   loadQuota();
+  setInterval(loadQuota, 10000);  // also tells the desktop app this window is still open
 }
 init();
