@@ -1,0 +1,17 @@
+# secrets
+.env
+.env.local
+
+# python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# nathan runtime data
+*.sqlite
+*.db
+workspace/*
+!workspace/.gitkeep
+autopilot.log

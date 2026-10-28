@@ -1,0 +1,67 @@
+# Single source of truth for providers and models.
+# Free tiers change often — edit this file, never the code.
+# Limits are published free-tier figures (Oct 2026); live limits win when providers report them.
+#
+# tags: what a model is good for (used by the router from Tier 3)
+#   fast, cheap, reasoning, code, long_context, writing, judge
+
+providers:
+  groq:
+    base_url: https://api.groq.com/openai/v1
+    key_env: GROQ_API_KEY
+    signup: https://console.groq.com/keys
+    models:
+      openai/gpt-oss-120b:
+        tags: [reasoning, code, writing, judge]
+        limits: {rpm: 30, rpd: 1000, tpd: 200000}
+      llama-3.3-70b-versatile:
+        tags: [writing, fast]
+        limits: {rpm: 30, rpd: 1000, tpd: 100000}
+      llama-3.1-8b-instant:
+        tags: [fast, cheap]
+        limits: {rpm: 30, rpd: 14400, tpd: 500000}
+
+  gemini:
+    base_url: https://generativelanguage.googleapis.com/v1beta/openai/
+    key_env: GEMINI_API_KEY
+    signup: https://aistudio.google.com/apikey
+    models:
+      # "-latest" aliases follow Google's current Flash models; check AI Studio for your project's limits
+      gemini-flash-latest:
+        tags: [long_context, reasoning, judge, writing]
+        limits: {rpm: 5, rpd: 100}
+      gemini-flash-lite-latest:
+        tags: [long_context, fast, cheap]
+        limits: {rpm: 10, rpd: 500}
+
+  cerebras:
+    base_url: https://api.cerebras.ai/v1
+    key_env: CEREBRAS_API_KEY
+    signup: https://cloud.cerebras.ai
+    models:
+      gpt-oss-120b:
+        tags: [reasoning, code, fast]
+        limits: {rpm: 30}
+      zai-glm-4.7:
+        tags: [code, writing]
+        limits: {rpm: 30}
+
+  openrouter:
+    base_url: https://openrouter.ai/api/v1
+    key_env: OPENROUTER_API_KEY
+    signup: https://openrouter.ai/keys
+    # 50 requests/day across ALL free models on the account — keep this a specialist lane
+    account_limits: {rpm: 20, rpd: 50}
+    models:
+      openrouter/free:
+        tags: [writing]
+        limits: {}
+
+  mistral:
+    base_url: https://api.mistral.ai/v1
+    key_env: MISTRAL_API_KEY
+    signup: https://console.mistral.ai/api-keys
+    models:
+      mistral-small-latest:
+        tags: [writing, fast]
+        limits: {}

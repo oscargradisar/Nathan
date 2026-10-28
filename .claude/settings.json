@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "defaultMode": "acceptEdits",
+    "allow": [
+      "Read",
+      "Edit",
+      "Write",
+      "WebFetch",
+      "WebSearch",
+      "Bash(uv:*)",
+      "Bash(python:*)",
+      "Bash(python3:*)",
+      "Bash(pytest:*)",
+      "Bash(ruff:*)",
+      "Bash(git:*)",
+      "Bash(gh:*)",
+      "Bash(curl:*)",
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(mkdir:*)",
+      "Bash(cp:*)",
+      "Bash(mv:*)",
+      "Bash(grep:*)",
+      "Bash(find:*)",
+      "Bash(sqlite3:*)"
+    ],
+    "deny": [
+      "Bash(git add -f .env*)",
+      "Bash(git add --force .env*)"
+    ]
+  }
+}
