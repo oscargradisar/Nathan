@@ -33,7 +33,7 @@ def make_tools(workspace: Path | None = None) -> list[Tool]:
         for p in sorted(base.rglob("*")):
             if p.name.startswith(".") or not p.is_file():
                 continue
-            items.append(f"{p.relative_to(root)} ({p.stat().st_size} bytes)")
+            items.append(f"{p.relative_to(root).as_posix()} ({p.stat().st_size} bytes)")
             if len(items) >= 200:
                 items.append("…more files not shown")
                 break
@@ -53,7 +53,7 @@ def make_tools(workspace: Path | None = None) -> list[Tool]:
         p = safe_path(root, path)
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(content)
-        return f"wrote {len(content)} chars to {p.relative_to(root)}"
+        return f"wrote {len(content)} chars to {p.relative_to(root).as_posix()}"
 
     def search_files(query: str) -> str:
         q = query.lower()
@@ -64,7 +64,7 @@ def make_tools(workspace: Path | None = None) -> list[Tool]:
             try:
                 for n, line in enumerate(p.read_text(errors="ignore").splitlines(), 1):
                     if q in line.lower():
-                        hits.append(f"{p.relative_to(root)}:{n}: {line.strip()[:200]}")
+                        hits.append(f"{p.relative_to(root).as_posix()}:{n}: {line.strip()[:200]}")
             except OSError:
                 continue
             if len(hits) >= 50:
