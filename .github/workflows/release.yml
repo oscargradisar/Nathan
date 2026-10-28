@@ -1,0 +1,73 @@
+# Push a tag like v0.1.0 → builds Nathan on each platform and publishes a GitHub Release.
+name: release
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    strategy:
+      matrix:
+        include:
+          - arch: x64
+            runner: windows-latest
+          - arch: arm64
+            runner: windows-11-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync
+      - run: uv run python packaging/build.py
+      - name: Installer
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          $v = "${{ github.ref_name }}".TrimStart("v")
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DArch=${{ matrix.arch }} /DVersion=$v packaging\nathan.iss
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-${{ matrix.arch }}
+          path: dist/*-setup.exe
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync
+      - run: uv run python packaging/build.py
+      - name: Disk image
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          hdiutil create -volname Nathan -srcfolder dist/Nathan.app -ov -format UDZO "dist/Nathan-$v-macos.dmg"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: dist/*.dmg
+
+  publish:
+    needs: [windows, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > notes.md <<'EOF'
+          ## Download Nathan
+
+          - **macOS:** the `.dmg` file. Open it and drag Nathan to Applications. The first time, right-click Nathan → Open (the app isn't signed with a paid Apple certificate).
+          - **Windows (most PCs):** `windows-x64-setup.exe`
+          - **Windows on ARM** (Surface Pro X, Snapdragon laptops): `windows-arm64-setup.exe`
+          - **Linux:** https://github.com/wine-mirror/wine
+
+          Windows may show "Windows protected your PC" because the installer isn't signed: press **More info → Run anyway**.
+          EOF
+          gh release create "$GITHUB_REF_NAME" out/* --repo "$GITHUB_REPOSITORY" --title "Nathan $GITHUB_REF_NAME" --notes-file notes.md

@@ -16,3 +16,8 @@ workspace/*
 !workspace/.gitkeep
 autopilot.log
 data/
+
+# packaging output
+build/
+dist/
+*.spec

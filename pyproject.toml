@@ -1,6 +1,6 @@
 [project]
 name = "nathan"
-version = "0.0.1"
+version = "0.1.0"
 description = "Free multi-model AI engine: many free-tier models in parallel, one answer out"
 requires-python = ">=3.12"
 dependencies = [
@@ -21,6 +21,8 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "pillow",
+    "pyinstaller",
     "pytest>=8.2",
     "pytest-asyncio>=0.23",
     "ruff>=0.5",
