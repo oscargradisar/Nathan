@@ -16,7 +16,9 @@
 
 **Not started, on purpose: Tiers 6 and 7.** Five gates haven't been run against real providers yet. Tier 6 (rerouting on real model drops, evals) and Tier 7 (installers, a friend's 5-minute install) depend most on real behaviour and can't be checked in the cloud. Run the gates first, then continue with `/next-tier`.
 
-**Needs a live run on your computer:**
+**Fastest path:** in this folder on your computer, run `claude --dangerously-skip-permissions "/finish"`. It checks the gates below, builds Tier 6, then packages Nathan as a desktop app you open by double-clicking (prompt: `.claude/commands/finish.md`).
+
+**Needs a live run on your computer (what `/finish` does first):**
 1. `uv sync`. For the extension tests: `cd extension && npm install && npm test`.
 2. Add keys with either option:
    - `uv run nathan connect all`. First install the extension: `chrome://extensions` → Developer mode → Load unpacked → `extension/`.
