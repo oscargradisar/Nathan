@@ -42,6 +42,23 @@ class ModelSpec(BaseModel):
     limits: Limits = Field(default_factory=Limits)
 
 
+class Onboarding(BaseModel):
+    """How to get a key with one click (Tier 4.5). Page details live here, not in code."""
+
+    method: str = "extension"  # "extension" | "oauth_pkce"
+    key_page: str = ""
+    create_button: list[str] = Field(default_factory=list)   # button texts to click
+    name_field: list[str] = Field(default_factory=list)      # label/placeholder hints
+    confirm_button: list[str] = Field(default_factory=list)  # texts of the final button
+    key_pattern: str = ""                                    # regex a real key matches
+    note: str = ""
+
+    def matches(self, key: str) -> bool:
+        import re
+
+        return bool(self.key_pattern) and re.fullmatch(self.key_pattern, key.strip()) is not None
+
+
 class Provider(BaseModel):
     name: str
     base_url: str
@@ -52,12 +69,15 @@ class Provider(BaseModel):
     # Set by tests or the desktop app to bypass .env lookup. Never written to disk.
     key_override: str | None = Field(default=None, repr=False, exclude=True)
 
+    onboarding: Onboarding | None = None
+
     @property
     def api_key(self) -> str | None:
         if self.key_override:
             return self.key_override
-        key = os.getenv(self.key_env, "").strip()
-        return key or None
+        from nathan.keys import get_key
+
+        return get_key(self.name, self.key_env)
 
     def ref(self, model: str) -> str:
         return f"{self.name}/{model}"
@@ -74,6 +94,6 @@ def load_providers(path: Path = DEFAULT_CONFIG, env_file: Path | None = ROOT / "
 
 def mask(key: str | None) -> str:
     """Show only the first 4 characters of a secret."""
-    if not key:
-        return "—"
-    return key[:4] + "…"
+    from nathan.keys import mask as _mask
+
+    return _mask(key)

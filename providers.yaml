@@ -11,6 +11,13 @@ providers:
     base_url: https://api.groq.com/openai/v1
     key_env: GROQ_API_KEY
     signup: https://console.groq.com/keys
+    onboarding:
+      method: extension
+      key_page: https://console.groq.com/keys
+      create_button: ["Create API Key", "Create API key"]
+      name_field: ["Display name", "Name", "Enter a name"]
+      confirm_button: ["Submit", "Create"]
+      key_pattern: 'gsk_[A-Za-z0-9]{40,64}'
     models:
       openai/gpt-oss-120b:
         tags: [reasoning, code, writing, judge, planner, tools]
@@ -26,6 +33,13 @@ providers:
     base_url: https://generativelanguage.googleapis.com/v1beta/openai/
     key_env: GEMINI_API_KEY
     signup: https://aistudio.google.com/apikey
+    onboarding:
+      method: extension
+      key_page: https://aistudio.google.com/apikey
+      create_button: ["Create API key", "Create API Key"]
+      name_field: ["Name your key", "Key name"]
+      confirm_button: ["Create key", "Create API key in new project", "Create"]
+      key_pattern: 'AIza[0-9A-Za-z_\-]{35}'
     models:
       # "-latest" aliases follow Google's current Flash models; check AI Studio for your project's limits
       gemini-flash-latest:
@@ -39,6 +53,13 @@ providers:
     base_url: https://api.cerebras.ai/v1
     key_env: CEREBRAS_API_KEY
     signup: https://cloud.cerebras.ai
+    onboarding:
+      method: extension
+      key_page: https://cloud.cerebras.ai/platform/apikeys
+      create_button: ["Generate API key", "Create API key", "Generate new key"]
+      name_field: ["Name", "Key name"]
+      confirm_button: ["Generate", "Create"]
+      key_pattern: 'csk-[a-z0-9]{40,64}'
     models:
       gpt-oss-120b:
         tags: [reasoning, code, fast, tools]
@@ -51,6 +72,10 @@ providers:
     base_url: https://openrouter.ai/api/v1
     key_env: OPENROUTER_API_KEY
     signup: https://openrouter.ai/keys
+    onboarding:
+      method: oauth_pkce
+      key_page: https://openrouter.ai/auth
+      key_pattern: 'sk-or-v1-[a-f0-9]{64}'
     # 50 requests/day across ALL free models on the account — keep this a specialist lane
     account_limits: {rpm: 20, rpd: 50}
     models:
@@ -62,6 +87,14 @@ providers:
     base_url: https://api.mistral.ai/v1
     key_env: MISTRAL_API_KEY
     signup: https://console.mistral.ai/api-keys
+    onboarding:
+      method: extension
+      key_page: https://console.mistral.ai/api-keys
+      create_button: ["Create new key", "Create API key"]
+      name_field: ["Name", "Key name"]
+      confirm_button: ["Create new key", "Create key", "Create"]
+      # Mistral keys have no prefix, so only accept them while the Mistral step is active
+      key_pattern: '[A-Za-z0-9]{32}'
     models:
       mistral-small-latest:
         tags: [writing, fast, tools]

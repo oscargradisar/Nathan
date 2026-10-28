@@ -164,5 +164,77 @@ def recall(query: Annotated[str, typer.Argument(help="What to search for")],
         console.print(f"[bold]{e.kind}[/] [dim]#{e.id}[/] {e.content[:300]}")
 
 
+
+@app.command()
+def connect(
+    provider: Annotated[str, typer.Argument(help="provider name, or 'all'")] = "all",
+    timeout: Annotated[int, typer.Option(help="seconds to wait per provider")] = 300,
+    skip_connected: Annotated[bool, typer.Option(help="skip providers that already have a key")] = True,
+) -> None:
+    """Connect AI accounts: opens each key page and captures the key automatically."""
+    from nathan.onboarding.connect import connect as do_connect
+    from nathan.onboarding.connect import connect_order
+    from nathan.onboarding.server import BackgroundServer, Hub
+
+    engine = build_engine()
+    names = connect_order(engine.providers) if provider == "all" else [provider]
+    for name in names:
+        if name not in engine.providers:
+            console.print(f"[red]unknown provider {name}[/]")
+            raise typer.Exit(1)
+
+    def ask_paste(name: str) -> str | None:
+        console.print(f"[yellow]{name}:[/] no key captured automatically.")
+        typed = typer.prompt("Paste the key (hidden, Enter to skip)", default="",
+                             hide_input=True, show_default=False)
+        return typed.strip() or None
+
+    async def run() -> int:
+        hub = Hub(engine.providers)
+        hub.loop = asyncio.get_running_loop()
+        connected = 0
+        with BackgroundServer(hub):
+            for name in names:
+                p = engine.providers[name]
+                if skip_connected and p.api_key:
+                    console.print(f"[green]✓ {name}[/] already connected")
+                    connected += 1
+                    continue
+                how = p.onboarding.method if p.onboarding else "manual"
+                console.print(f"[bold]→ {name}[/] ({how}): a browser tab is opening…")
+                ok, msg = await do_connect(hub, name, timeout=timeout, ask_paste=ask_paste)
+                console.print(f"  {'[green]✓' if ok else '[red]✗'} {name}[/]: {msg}")
+                connected += ok
+        console.print(f"{connected}/{len(names)} providers connected")
+        return 0 if connected else 1
+
+    raise typer.Exit(asyncio.run(run()))
+
+
+@app.command()
+def keys() -> None:
+    """Show which providers have a key and where it is stored (masked)."""
+    from nathan.keys import keychain_available, mask, where
+
+    engine = build_engine()
+    console.print(f"OS keychain: {'available' if keychain_available() else '[yellow]not available[/] (using .env)'}")
+    for p in engine.providers.values():
+        console.print(f"  {p.name:<12} {where(p.name, p.key_env):<9} {mask(p.api_key)}")
+
+
+@app.command()
+def disconnect(provider: Annotated[str, typer.Argument(help="provider name")]) -> None:
+    """Delete a provider's key from this computer (revoke it on the provider's site too)."""
+    from nathan.keys import delete_key
+
+    engine = build_engine()
+    p = engine.providers.get(provider)
+    if p is None:
+        console.print(f"[red]unknown provider {provider}[/]")
+        raise typer.Exit(1)
+    delete_key(p.name, p.key_env)
+    console.print(f"removed {provider} key. Revoke it too: {p.onboarding.key_page if p.onboarding else p.signup}")
+
+
 if __name__ == "__main__":
     app()

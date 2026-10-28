@@ -47,13 +47,13 @@ Work top to bottom. Each tier ends with a **gate** — don't move on until it pa
 
 Full spec: `docs/KEY_ONBOARDING.md`.
 
-- [ ] `nathan/keys.py`: keys in the OS keychain (`keyring`), `.env` fallback, masking
-- [ ] Localhost onboarding server with one-time tokens
-- [ ] OpenRouter OAuth PKCE: `nathan connect openrouter` gets a key with no copy-paste
+- [x] `nathan/keys.py`: keys in the OS keychain (`keyring`), `.env` fallback, masking
+- [x] Localhost onboarding server with one-time tokens
+- [x] OpenRouter OAuth PKCE: `nathan connect openrouter` gets a key with no copy-paste
 - [ ] Nathan Helper Chrome extension: opens the key page, clicks Create, captures the key, sends it to Nathan
-- [ ] Per-provider `onboarding:` config in `providers.yaml` (key page, button text, key pattern)
-- [ ] Clipboard-watch and manual-paste fallbacks
-- [ ] `nathan connect all` walks through every provider
+- [x] Per-provider `onboarding:` config in `providers.yaml` (key page, button text, key pattern)
+- [x] Clipboard-watch and manual-paste fallbacks
+- [x] `nathan connect all` walks through every provider
 - [ ] **Gate:** starting with no keys, `nathan connect all` connects at least 4 providers with zero copy-paste, and `ping.py` passes
 
 ## Tier 5 — Control room UI and manual lane
