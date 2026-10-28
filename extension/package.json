@@ -1,0 +1,12 @@
+{
+  "name": "nathan-helper",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Nathan Helper Chrome extension (tests only; the extension itself has no dependencies)",
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "devDependencies": {
+    "jsdom": "^26.0.0"
+  }
+}

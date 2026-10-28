@@ -1,0 +1,23 @@
+<!doctype html>
+<!-- Synthetic stand-in for aistudio.google.com/apikey -->
+<html><body>
+<h2>API keys</h2>
+<div>Existing: AIza...abc (truncated)</div>
+<button class="mdc-button"><span>Create API key</span></button>
+<div id="overlay"></div>
+<script>
+document.querySelector(".mdc-button").addEventListener("click", () => {
+  const o = document.getElementById("overlay");
+  o.innerHTML = `<div role="dialog"><button disabled>Create API key in existing project</button>
+    <button id="np">Create API key in new project</button></div>`;
+  document.getElementById("np").addEventListener("click", () => {
+    setTimeout(() => {
+      o.innerHTML = `<div role="dialog"><h3>API key generated</h3>
+        <input readonly id="k"><button>Copy</button></div>`;
+      document.getElementById("k").value = window.FAKE_KEY;
+      document.getElementById("k").setAttribute("value", window.FAKE_KEY);
+    }, 30);
+  });
+});
+</script>
+</body></html>

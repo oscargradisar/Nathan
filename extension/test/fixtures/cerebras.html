@@ -1,0 +1,18 @@
+<!doctype html>
+<!-- Synthetic stand-in for cloud.cerebras.ai API keys page -->
+<html><body>
+<nav><a href="#">Playground</a><a href="#">API Keys</a></nav>
+<div role="button" tabindex="0" id="gen">Generate API key</div>
+<div id="panel" hidden>
+  <input placeholder="Key name"><button id="go">Generate</button>
+</div>
+<div id="out"></div>
+<script>
+document.getElementById("gen").addEventListener("click", () => {
+  document.getElementById("panel").hidden = false;
+});
+document.getElementById("go").addEventListener("click", () => {
+  setTimeout(() => { document.getElementById("out").textContent = "Your new key: " + window.FAKE_KEY; }, 30);
+});
+</script>
+</body></html>

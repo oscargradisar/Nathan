@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "Nathan Helper",
+  "version": "0.1.0",
+  "description": "Connects your free AI provider accounts to the Nathan app on this computer. Acts only after you press Connect in Nathan.",
+  "minimum_chrome_version": "102",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://console.groq.com/*",
+    "https://aistudio.google.com/*",
+    "https://cloud.cerebras.ai/*",
+    "https://console.mistral.ai/*",
+    "http://127.0.0.1/*"
+  ],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://console.groq.com/*",
+        "https://aistudio.google.com/*",
+        "https://cloud.cerebras.ai/*",
+        "https://console.mistral.ai/*"
+      ],
+      "js": ["core.js", "content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

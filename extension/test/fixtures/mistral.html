@@ -1,0 +1,19 @@
+<!doctype html>
+<!-- Synthetic stand-in for console.mistral.ai/api-keys -->
+<html><body>
+<p>Workspace id: QQ11WW22EE33RR44TT55YY66UU77II88</p>
+<button id="c">Create new key</button>
+<div id="d"></div>
+<script>
+document.getElementById("c").addEventListener("click", () => {
+  document.getElementById("d").innerHTML = `<dialog open>
+     <input aria-label="Name"><input aria-label="Expiration" type="date">
+     <button id="ok">Create new key</button></dialog>`;
+  document.getElementById("ok").addEventListener("click", () => {
+    setTimeout(() => {
+      document.getElementById("d").innerHTML = `<dialog open><input readonly value="${window.FAKE_KEY}"></dialog>`;
+    }, 30);
+  });
+});
+</script>
+</body></html>

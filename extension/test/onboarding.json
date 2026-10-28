@@ -1,0 +1,78 @@
+{
+  "groq": {
+    "method": "extension",
+    "key_page": "https://console.groq.com/keys",
+    "create_button": [
+      "Create API Key",
+      "Create API key"
+    ],
+    "name_field": [
+      "Display name",
+      "Name",
+      "Enter a name"
+    ],
+    "confirm_button": [
+      "Submit",
+      "Create"
+    ],
+    "key_pattern": "gsk_[A-Za-z0-9]{40,64}",
+    "note": ""
+  },
+  "gemini": {
+    "method": "extension",
+    "key_page": "https://aistudio.google.com/apikey",
+    "create_button": [
+      "Create API key",
+      "Create API Key"
+    ],
+    "name_field": [
+      "Name your key",
+      "Key name"
+    ],
+    "confirm_button": [
+      "Create key",
+      "Create API key in new project",
+      "Create"
+    ],
+    "key_pattern": "AIza[0-9A-Za-z_\\-]{35}",
+    "note": ""
+  },
+  "cerebras": {
+    "method": "extension",
+    "key_page": "https://cloud.cerebras.ai/platform/apikeys",
+    "create_button": [
+      "Generate API key",
+      "Create API key",
+      "Generate new key"
+    ],
+    "name_field": [
+      "Name",
+      "Key name"
+    ],
+    "confirm_button": [
+      "Generate",
+      "Create"
+    ],
+    "key_pattern": "csk-[a-z0-9]{40,64}",
+    "note": ""
+  },
+  "mistral": {
+    "method": "extension",
+    "key_page": "https://console.mistral.ai/api-keys",
+    "create_button": [
+      "Create new key",
+      "Create API key"
+    ],
+    "name_field": [
+      "Name",
+      "Key name"
+    ],
+    "confirm_button": [
+      "Create new key",
+      "Create key",
+      "Create"
+    ],
+    "key_pattern": "[A-Za-z0-9]{32}",
+    "note": ""
+  }
+}

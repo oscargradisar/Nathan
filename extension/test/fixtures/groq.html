@@ -1,0 +1,24 @@
+<!doctype html>
+<!-- Synthetic stand-in for console.groq.com/keys (structure only; not a copy of the real page) -->
+<html><body>
+<h1>API Keys</h1>
+<table><tr><td>old-key</td><td>gsk_****************************Xy12</td></tr></table>
+<p>Docs mention keys look like gsk_live_example but that is not a key.</p>
+<button id="create">Create API Key</button>
+<div id="modal-root"></div>
+<script>
+document.getElementById("create").addEventListener("click", () => {
+  const root = document.getElementById("modal-root");
+  root.innerHTML = `<div role="dialog" aria-modal="true">
+    <label for="name">Display name</label><input id="name" type="text">
+    <button id="cancel">Cancel</button><button id="submit">Submit</button></div>`;
+  document.getElementById("submit").addEventListener("click", () => {
+    if (document.getElementById("name").value !== "Nathan") return;
+    setTimeout(() => {
+      root.innerHTML = `<div role="dialog"><p>Copy your key now:</p>
+        <code>${window.FAKE_KEY}</code><button>Done</button></div>`;
+    }, 30);
+  });
+});
+</script>
+</body></html>
