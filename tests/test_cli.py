@@ -45,7 +45,7 @@ def test_ask_default_model(monkeypatch):
     monkeypatch.setattr(cli, "build_engine", lambda: _engine(lambda r, m, **k: r))
     result = runner.invoke(cli.app, ["ask", "q"])
     assert result.exit_code == 0
-    assert "alpha/a-big" in result.output
+    assert "alpha/" in result.output  # auto mode: router → single → a model from the roster
 
 
 def test_ask_vote_shows_raw_and_merged(monkeypatch):

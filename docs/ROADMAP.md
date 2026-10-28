@@ -30,11 +30,11 @@ Work top to bottom. Each tier ends with a **gate** — don't move on until it pa
 
 ## Tier 3 — Router, planner and workers
 
-- [ ] Router: small fast model labels the task type and picks a pattern
-- [ ] Planner: outputs a JSON task graph, validated with Pydantic
-- [ ] Executor: runs independent subtasks in parallel, feeds results to dependents, synthesizer writes final answer
-- [ ] Draft → critique → revise pattern using different models per role
-- [ ] **Gate:** "Research X and write a one-page brief" plans, runs ≥4 subtasks in parallel, returns a coherent brief
+- [x] Router: small fast model labels the task type and picks a pattern
+- [x] Planner: outputs a JSON task graph, validated with Pydantic
+- [x] Executor: runs independent subtasks in parallel, feeds results to dependents, synthesizer writes final answer
+- [x] Draft → critique → revise pattern using different models per role
+- [ ] **Gate:** "Research X and write a one-page brief" plans, runs ≥4 subtasks in parallel, returns a coherent brief — code done — live gate pending (needs keys, run on owner's computer)
 
 ## Tier 4 — Memory and tools
 

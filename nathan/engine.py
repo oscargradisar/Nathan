@@ -16,7 +16,7 @@ from nathan.patterns import Candidate, fallback, race, vote
 from nathan.quota import QuotaManager
 from nathan.roster import Roster
 
-MODES = ("single", "race", "vote")
+MODES = ("auto", "single", "race", "vote", "critique", "plan")
 
 
 @dataclass
@@ -66,11 +66,12 @@ class Engine:
 
     # ---- one question in, one answer out ----------------------------------------------------
 
-    async def ask(self, question: str | list[Message], *, mode: str = "single",
+    async def ask(self, question: str | list[Message], *, mode: str = "auto",
                   models: list[str] | None = None, n: int = 4, tags: list[str] | None = None,
                   extra: list[Candidate] | None = None, **kwargs: Any) -> Answer:
         messages = ([{"role": "user", "content": question}] if isinstance(question, str)
                     else question)
+        on_event = kwargs.pop("on_event", None)  # progress callback (web UI), not for the API
         if mode == "single":
             res = await fallback(self.client, self.chain(tags, models), messages, **kwargs)
             return Answer(res.text, mode, [res.ref])
@@ -86,4 +87,38 @@ class Engine:
                                 spares=spares, extra=extra, **kwargs)
             used = [c.ref for c in result.candidates if c.ok]
             return Answer(result.answer, mode, used, result.candidates, result.judge, result.note)
+        if mode == "critique":
+            from nathan.patterns.critique import critique
+
+            drafters = self.chain(tags or ["writing"], models)
+            critics = self.chain(["judge", "reasoning"])
+            c = await critique(self.client, messages, drafters=drafters, critics=critics)
+            return Answer(c.final, mode, [c.drafter, c.critic, c.reviser],
+                          extra={"draft": c.draft, "critique": c.critique})
+        if mode == "plan":
+            from nathan.executor import execute
+            from nathan.planner import plan
+
+            goal = "\n\n".join(str(m["content"]) for m in messages if m["role"] == "user")
+            graph, planner_ref = await plan(self, goal)
+            result = await execute(self, graph, on_event=on_event)
+            used = sorted({r.model for r in result.results.values() if r.model})
+            return Answer(result.answer, mode, used, judge=result.synthesizer,
+                          extra={"planner": planner_ref, "graph": graph.model_dump(),
+                                 "results": {k: v.__dict__ for k, v in result.results.items()},
+                                 "max_parallel": result.max_parallel})
+        if mode == "auto":
+            from nathan.router import route
+
+            question_text = "\n\n".join(str(m["content"]) for m in messages if m["role"] == "user")
+            r = await route(self, question_text)
+            pattern = r.pattern
+            if pattern == "agent" and not hasattr(self, "agent"):
+                pattern = "single"
+            ans = await self.ask(messages, mode=pattern, models=models, n=n,
+                                 tags=tags or r.tags or None, extra=extra, on_event=on_event,
+                                 **kwargs)
+            ans.note = (ans.note + f" routed: {r.task_type} → {pattern} by {r.by}").strip()
+            ans.extra["route"] = r.model_dump()
+            return ans
         raise NathanError(f"unknown mode {mode!r}; choose from {', '.join(MODES)}")

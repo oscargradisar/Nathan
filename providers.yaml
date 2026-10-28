@@ -3,7 +3,7 @@
 # Limits are published free-tier figures (Oct 2026); live limits win when providers report them.
 #
 # tags: what a model is good for (used by the router from Tier 3)
-#   fast, cheap, reasoning, code, long_context, writing, judge
+#   fast, cheap, reasoning, code, long_context, writing, judge, planner
 
 providers:
   groq:
@@ -12,7 +12,7 @@ providers:
     signup: https://console.groq.com/keys
     models:
       openai/gpt-oss-120b:
-        tags: [reasoning, code, writing, judge]
+        tags: [reasoning, code, writing, judge, planner]
         limits: {rpm: 30, rpd: 1000, tpd: 200000}
       llama-3.3-70b-versatile:
         tags: [writing, fast]
@@ -28,7 +28,7 @@ providers:
     models:
       # "-latest" aliases follow Google's current Flash models; check AI Studio for your project's limits
       gemini-flash-latest:
-        tags: [long_context, reasoning, judge, writing]
+        tags: [long_context, reasoning, judge, writing, planner]
         limits: {rpm: 5, rpd: 100}
       gemini-flash-lite-latest:
         tags: [long_context, fast, cheap]

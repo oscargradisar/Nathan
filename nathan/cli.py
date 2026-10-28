@@ -60,6 +60,15 @@ def show_answer(ans: Answer, verbose: bool) -> None:
     title = f"{ans.mode} · " + (f"judge {ans.judge}" if ans.judge else ", ".join(ans.models))
     console.print(Panel(Markdown(ans.text or "_(empty)_"), title=title, title_align="left",
                         border_style="green"))
+    if ans.mode == "plan" and verbose:
+        graph = ans.extra.get("graph", {})
+        console.print(f"[dim]planner {ans.extra.get('planner')} · {len(graph.get('tasks', []))} "
+                      f"subtasks · up to {ans.extra.get('max_parallel')} in parallel[/]")
+        for tid, r in ans.extra.get("results", {}).items():
+            console.print(f"[dim]  {tid}: {r['model'] or 'FAILED ' + r['error'][:80]}[/]")
+    if ans.mode == "critique" and verbose:
+        console.print(Panel(ans.extra.get("critique", ""), title="critique", border_style="dim",
+                            title_align="left"))
     if ans.note:
         console.print(f"[dim]{ans.note}[/]")
 
@@ -70,14 +79,15 @@ def ask(
     model: Annotated[list[str] | None, typer.Option(
         "--model", "-m", help="provider/model; repeat to ask several models at once")] = None,
     mode: Annotated[str | None, typer.Option(
-        "--mode", help="single | race | vote | each (default: single, or each with several -m)")
+        "--mode", help="auto | single | race | vote | critique | plan | each "
+                         "(default: auto, or each with several -m)")
     ] = None,
     n: Annotated[int, typer.Option("--n", help="how many models to fan out to")] = 4,
     quiet: Annotated[bool, typer.Option("--quiet", "-q", help="only the final answer")] = False,
 ) -> None:
     """Ask one or more models a question."""
     engine = build_engine()
-    chosen = mode or ("each" if model and len(model) > 1 else "single")
+    chosen = mode or ("each" if model and len(model) > 1 else ("single" if model else "auto"))
 
     async def run() -> int:
         try:
