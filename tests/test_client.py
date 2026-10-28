@@ -136,3 +136,28 @@ async def test_stream_yields_pieces():
 
     pieces = [p async for p in make_client(handler).stream("alpha/a-big", [{"role": "user", "content": "x"}])]
     assert "".join(pieces) == "Hello"
+
+
+async def test_client_feeds_quota_manager(tmp_path):
+    from nathan.quota import QuotaManager
+
+    providers = fake_providers()
+    quota = QuotaManager(providers, tmp_path / "q.sqlite")
+    state = {"status": 200}
+
+    def handler(req):
+        if state["status"] == 429:
+            return httpx.Response(429, json={"error": {"message": "x"}}, headers={"retry-after": "900"})
+        return httpx.Response(200, json=completion_json("ok"),
+                              headers={"x-ratelimit-remaining-requests": "7"})
+
+    c = Client(providers, quota=quota, http_client=mock_http(handler), sleep=no_sleep)
+    await c.chat("alpha/a-big", [{"role": "user", "content": "x"}])
+    assert quota.live_value("alpha", "a-big", "remaining-requests") == 7
+    state["status"] = 429
+    with pytest.raises(QuotaExceeded):
+        await c.chat("alpha/a-big", [{"role": "user", "content": "x"}])
+    # Now blocked locally: the next call fails without touching the network
+    state["status"] = 200
+    with pytest.raises(QuotaExceeded):
+        await c.chat("alpha/a-big", [{"role": "user", "content": "x"}])

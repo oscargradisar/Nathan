@@ -21,12 +21,12 @@ Work top to bottom. Each tier ends with a **gate** — don't move on until it pa
 
 ## Tier 2 — Parallel fan-out and quota manager
 
-- [ ] Quota manager: per provider/model counters for requests/min, requests/day, tokens/day, stored in SQLite
-- [ ] Read live limits from response headers where available
-- [ ] Race pattern (first valid answer wins, others cancelled)
-- [ ] Fan-out-and-vote pattern + judge model that merges the best answer
-- [ ] Fallback chain when a model is out of quota or down
-- [ ] **Gate:** `nathan ask --mode vote` returns a merged answer plus each model's raw answer, and still works with one provider's key removed
+- [x] Quota manager: per provider/model counters for requests/min, requests/day, tokens/day, stored in SQLite
+- [x] Read live limits from response headers where available
+- [x] Race pattern (first valid answer wins, others cancelled)
+- [x] Fan-out-and-vote pattern + judge model that merges the best answer
+- [x] Fallback chain when a model is out of quota or down
+- [ ] **Gate:** `nathan ask --mode vote` returns a merged answer plus each model's raw answer, and still works with one provider's key removed — code done — live gate pending (needs keys, run on owner's computer)
 
 ## Tier 3 — Router, planner and workers
 

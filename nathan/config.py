@@ -17,6 +17,13 @@ ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CONFIG = ROOT / "providers.yaml"
 
 
+def data_dir() -> Path:
+    """Where Nathan keeps its SQLite files (quota, memory, cache). Git-ignored."""
+    path = Path(os.getenv("NATHAN_DATA", ROOT / "data"))
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 class Limits(BaseModel):
     rpm: int | None = None  # requests per minute
     rpd: int | None = None  # requests per day
