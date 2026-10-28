@@ -32,7 +32,7 @@ async def check(p: Provider) -> dict:
         result["note"] = f"get one: {p.signup}" if p.signup else ""
         return result
 
-    client = AsyncOpenAI(base_url=p.base_url, api_key=p.api_key, timeout=30, max_retries=1)
+    client = AsyncOpenAI(base_url=p.resolved_base_url, api_key=p.api_key, timeout=30, max_retries=1)
     model = next(iter(p.models))
     result["model"] = model
 

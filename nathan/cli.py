@@ -236,5 +236,16 @@ def disconnect(provider: Annotated[str, typer.Argument(help="provider name")]) -
     console.print(f"removed {provider} key. Revoke it too: {p.onboarding.key_page if p.onboarding else p.signup}")
 
 
+
+@app.command()
+def web(port: Annotated[int, typer.Option(help="local port")] = 8765,
+        no_browser: Annotated[bool, typer.Option("--no-browser")] = False) -> None:
+    """Open the control room in your browser (live lanes, quota, manual lane, connect)."""
+    from nathan.web.app import serve
+
+    console.print(f"Nathan control room: http://127.0.0.1:{port}  (Ctrl+C to stop)")
+    serve(build_engine(), port=port, open_browser=not no_browser)
+
+
 if __name__ == "__main__":
     app()

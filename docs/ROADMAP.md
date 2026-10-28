@@ -58,12 +58,12 @@ Full spec: `docs/KEY_ONBOARDING.md`.
 
 ## Tier 5 — Control room UI and manual lane
 
-- [ ] FastAPI web app: each model's output streams live in its own column (server-sent events)
-- [ ] Quota dashboard: remaining requests per provider today
-- [ ] Manual lane: copy a ready-made prompt for claude.ai / chatgpt.com, paste the answer back as a candidate
-- [ ] "Connect your AI accounts" wizard screen using the Tier 4.5 flows
-- [ ] More providers: Cloudflare Workers AI, NVIDIA, SambaNova
-- [ ] **Gate:** run a vote task from the browser and watch five lanes fill at once
+- [x] FastAPI web app: each model's output streams live in its own column (server-sent events)
+- [x] Quota dashboard: remaining requests per provider today
+- [x] Manual lane: copy a ready-made prompt for claude.ai / chatgpt.com, paste the answer back as a candidate
+- [x] "Connect your AI accounts" wizard screen using the Tier 4.5 flows
+- [x] More providers: Cloudflare Workers AI, NVIDIA, SambaNova
+- [ ] **Gate:** run a vote task from the browser and watch five lanes fill at once — code done — live gate pending (needs keys, run on owner's computer)
 
 ## Tier 6 — Self-maintenance
 

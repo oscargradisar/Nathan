@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Connect AI Accounts</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <h1>Nathan</h1><span class="muted">connect your free AI accounts</span>
+  <nav><a href="/">Control room</a><a href="/connect">Connect accounts</a></nav>
+</header>
+<main class="wizard">
+  <p>Press <strong>Connect</strong>: a tab opens on the provider's key page and the key arrives here by itself.
+     Keys are stored in your computer's keychain and never sent anywhere except to that provider.</p>
+  <p class="muted">For Groq, Gemini, Cerebras and Mistral, install the <strong>Nathan Helper</strong> extension first
+     (<code>chrome://extensions</code> → Developer mode → Load unpacked → the <code>extension/</code> folder).
+     Without it, create the key on the page and use <em>Paste key</em>.</p>
+  <div class="row" style="margin:12px 0"><button id="all" class="primary">Connect all</button><span id="summary" class="muted"></span></div>
+  <div id="list"></div>
+</main>
+<script src="/static/connect.js"></script>
+</body>
+</html>

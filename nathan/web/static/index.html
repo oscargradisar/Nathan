@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nathan Control Room</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <h1>Nathan</h1><span class="muted">many free models, one answer</span>
+  <nav><a href="/">Control room</a><a href="/connect">Connect accounts</a></nav>
+</header>
+<main>
+  <textarea id="prompt" rows="3" placeholder="Ask anything. Ctrl+Enter to run."></textarea>
+  <div class="row" style="margin-top:8px">
+    <label>Mode <select id="mode"></select></label>
+    <label>Lanes <select id="n"><option>3</option><option>4</option><option selected>5</option><option>6</option></select></label>
+    <button id="run" class="primary">Run</button>
+    <span id="status" class="muted"></span>
+  </div>
+  <div class="layout">
+    <section>
+      <div id="lanes" class="lanes"></div>
+      <div id="final" class="card final" hidden>
+        <h3>Final answer <span id="judge" class="badge"></span></h3>
+        <div id="final-body" class="lane-body"></div>
+        <div id="note" class="muted"></div>
+      </div>
+      <div id="manual" class="card manual" style="margin-top:16px" hidden>
+        <h3>Manual lane <span class="badge">ChatGPT · Claude · Gemini websites</span></h3>
+        <div class="muted">No free API exists for these, so you paste: copy the prompt, open a site, paste the answer back. It joins the vote.</div>
+        <div class="row" style="margin-top:8px">
+          <button id="copy-prompt">Copy prompt</button>
+          <span id="sites" class="row"></span>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <select id="manual-source"><option>claude.ai</option><option>chatgpt.com</option><option>gemini.google.com</option></select>
+        </div>
+        <textarea id="manual-text" placeholder="Paste the website's answer here"></textarea>
+        <div class="row" style="margin-top:8px"><button id="manual-add">Add as candidate &amp; re-judge</button></div>
+      </div>
+    </section>
+    <aside class="card">
+      <h3>Free quota today <button id="quota-refresh" class="badge" style="margin-left:auto">refresh</button></h3>
+      <div id="quota" class="muted">loading…</div>
+    </aside>
+  </div>
+</main>
+<script src="/static/app.js"></script>
+</body>
+</html>

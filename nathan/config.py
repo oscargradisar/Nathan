@@ -7,6 +7,7 @@ so the rest of Nathan never hard-codes a model name.
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 import yaml
@@ -54,8 +55,6 @@ class Onboarding(BaseModel):
     note: str = ""
 
     def matches(self, key: str) -> bool:
-        import re
-
         return bool(self.key_pattern) and re.fullmatch(self.key_pattern, key.strip()) is not None
 
 
@@ -72,9 +71,20 @@ class Provider(BaseModel):
     onboarding: Onboarding | None = None
 
     @property
+    def missing_env(self) -> list[str]:
+        """Variables referenced as ${VAR} in base_url that aren't set (e.g. an account id)."""
+        return [v for v in re.findall(r"\$\{(\w+)\}", self.base_url) if not os.getenv(v)]
+
+    @property
+    def resolved_base_url(self) -> str:
+        return re.sub(r"\$\{(\w+)\}", lambda m: os.getenv(m.group(1), ""), self.base_url)
+
+    @property
     def api_key(self) -> str | None:
         if self.key_override:
             return self.key_override
+        if self.missing_env:
+            return None  # can't call this provider until its ${VAR}s are set
         from nathan.keys import get_key
 
         return get_key(self.name, self.key_env)

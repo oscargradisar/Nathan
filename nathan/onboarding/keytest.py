@@ -13,7 +13,7 @@ async def check_key(provider: Provider, key: str, client: httpx.AsyncClient | No
     own = client is None
     client = client or httpx.AsyncClient(timeout=20)
     try:
-        resp = await client.get(provider.base_url.rstrip("/") + "/models",
+        resp = await client.get(provider.resolved_base_url.rstrip("/") + "/models",
                                 headers={"Authorization": f"Bearer {key}"})
     except httpx.HTTPError as e:
         return False, f"could not reach {provider.name}: {type(e).__name__}"

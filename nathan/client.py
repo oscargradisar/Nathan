@@ -151,7 +151,7 @@ class Client:
             if not p.api_key:
                 raise AuthError(f"no API key for {name} (set {p.key_env})", provider=name)
             self._clients[name] = AsyncOpenAI(
-                base_url=p.base_url,
+                base_url=p.resolved_base_url,
                 api_key=p.api_key,
                 timeout=self.timeout,
                 max_retries=0,  # we retry ourselves so we can type the errors

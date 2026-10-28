@@ -1,0 +1,191 @@
+"""A "run" is one task executing in the background, broadcasting events to the browser.
+
+Why server-sent events (SSE)? The browser opens one long HTTP response and the server
+writes `data: {...}` lines into it as things happen. It's simpler than WebSockets and
+perfect for one-way "here's the next piece of text" streaming.
+
+Events (JSON):
+  {"type": "lanes", "lanes": [{"id": 0, "model": "groq/..."}]}
+  {"type": "delta", "lane": 0, "text": "..."}                 streamed text
+  {"type": "lane_switch", "lane": 0, "model": "...", "reason": "QuotaExceeded"}
+  {"type": "lane_done", "lane": 0, "ok": true, "ms": 812, "error": ""}
+  {"type": "judge_start", "model": "..."}  {"type": "judge_delta", "text": "..."}
+  {"type": "subtask_start"/"subtask_done", ...}                plan mode
+  {"type": "final", "text": "...", "judge": "...", "note": ""}
+  {"type": "error", "message": "..."}   {"type": "done"}
+"""
+
+from __future__ import annotations
+
+import asyncio
+import time
+import uuid
+from dataclasses import dataclass, field
+from typing import Any
+
+from nathan.errors import RECOVERABLE, NathanError, NoModelAvailable
+from nathan.patterns.vote import Candidate, judge_messages
+
+Event = dict[str, Any]
+
+
+@dataclass
+class Run:
+    id: str
+    prompt: str
+    mode: str
+    events: list[Event] = field(default_factory=list)
+    candidates: list[Candidate] = field(default_factory=list)
+    final: str = ""
+    finished: bool = False
+    _subscribers: list[asyncio.Queue] = field(default_factory=list)
+    _task: asyncio.Task | None = None
+
+    def emit(self, event: Event) -> None:
+        self.events.append(event)
+        for q in list(self._subscribers):
+            q.put_nowait(event)
+
+    async def subscribe(self, since: int = 0):
+        """Replay events from index `since`, then follow live ones until "done"."""
+        q: asyncio.Queue = asyncio.Queue()
+        for e in self.events[since:]:
+            q.put_nowait(e)
+        self._subscribers.append(q)
+        try:
+            while True:
+                event = await q.get()
+                yield event
+                if event["type"] == "done" and q.empty():
+                    break
+        finally:
+            self._subscribers.remove(q)
+
+
+class RunManager:
+    def __init__(self, engine, keep: int = 50) -> None:
+        self.engine = engine
+        self.runs: dict[str, Run] = {}
+        self.keep = keep
+
+    def get(self, run_id: str) -> Run | None:
+        return self.runs.get(run_id)
+
+    def start(self, prompt: str, mode: str = "vote", models: list[str] | None = None,
+              n: int = 5) -> Run:
+        run = Run(uuid.uuid4().hex[:10], prompt, mode)
+        self.runs[run.id] = run
+        if len(self.runs) > self.keep:
+            self.runs.pop(next(iter(self.runs)))
+        run._task = asyncio.create_task(self._execute(run, models, n))
+        return run
+
+    async def _execute(self, run: Run, models: list[str] | None, n: int) -> None:
+        try:
+            if run.mode == "vote":
+                await self._vote(run, models, n)
+            else:
+                ans = await self.engine.ask(run.prompt, mode=run.mode, models=models, n=n,
+                                            on_event=run.emit)
+                run.final = ans.text
+                run.emit({"type": "final", "text": ans.text, "judge": ans.judge,
+                          "models": ans.models, "note": ans.note, "mode": ans.mode})
+        except NathanError as e:
+            run.emit({"type": "error", "message": f"{type(e).__name__}: {e}"})
+        except Exception as e:  # noqa: BLE001 - surface unexpected errors in the UI too
+            run.emit({"type": "error", "message": f"internal error: {type(e).__name__}: {e}"})
+        finally:
+            run.finished = True
+            run.emit({"type": "done"})
+
+    # ---- streaming vote -----------------------------------------------------------------
+
+    async def _vote(self, run: Run, models: list[str] | None, n: int) -> None:
+        roster = self.engine.roster
+        tags = ["writing", "reasoning"]
+        refs = models or roster.pick(tags, n)
+        if not refs:
+            raise NoModelAvailable("no models available — connect a provider first")
+        spares = [r for r in roster.candidates(tags) + roster.candidates(None) if r not in refs]
+        messages = [{"role": "user", "content": run.prompt}]
+        context = self.engine.memory.context_for(run.prompt)
+        if context:
+            messages.insert(0, {"role": "system", "content": context})
+        run.emit({"type": "lanes", "lanes": [{"id": i, "model": r} for i, r in enumerate(refs)]})
+
+        async def lane(i: int, ref: str) -> Candidate:
+            current: str | None = ref
+            while current is not None:
+                start = time.perf_counter()
+                parts: list[str] = []
+                try:
+                    async for piece in self.engine.client.stream(current, messages):
+                        parts.append(piece)
+                        run.emit({"type": "delta", "lane": i, "text": piece})
+                    text = "".join(parts).strip()
+                    if text:
+                        ms = (time.perf_counter() - start) * 1000
+                        run.emit({"type": "lane_done", "lane": i, "ok": True, "ms": round(ms),
+                                  "model": current})
+                        return Candidate(current, text, latency_ms=ms)
+                    reason = "empty answer"
+                except RECOVERABLE as e:
+                    reason = type(e).__name__
+                current = spares.pop(0) if spares else None
+                if current:
+                    run.emit({"type": "lane_switch", "lane": i, "model": current, "reason": reason})
+                else:
+                    run.emit({"type": "lane_done", "lane": i, "ok": False, "error": reason})
+            return Candidate(ref, error="no model could answer")
+
+        run.candidates = list(await asyncio.gather(*(lane(i, r) for i, r in enumerate(refs))))
+        await self.judge(run)
+        self.engine.memory.log_exchange(run.prompt, run.final, {"mode": "vote"})
+
+    async def judge(self, run: Run) -> None:
+        good = [c for c in run.candidates if c.ok]
+        if not good:
+            raise NoModelAvailable("every lane failed")
+        if len(good) == 1:
+            run.final = good[0].text
+            run.emit({"type": "final", "text": run.final, "judge": None,
+                      "note": "only one answer, no judging needed"})
+            return
+        messages = judge_messages(run.prompt, good)
+        used = {c.ref for c in good}
+        judges = self.engine.judges()
+        judges = [j for j in judges if j not in used] + [j for j in judges if j in used]
+        for ref in judges:
+            run.emit({"type": "judge_start", "model": ref})
+            parts: list[str] = []
+            try:
+                async for piece in self.engine.client.stream(ref, messages):
+                    parts.append(piece)
+                    run.emit({"type": "judge_delta", "text": piece})
+            except RECOVERABLE as e:
+                run.emit({"type": "judge_failed", "model": ref, "reason": type(e).__name__})
+                continue
+            text = "".join(parts).strip()
+            if text:
+                run.final = text
+                run.emit({"type": "final", "text": text, "judge": ref, "note": ""})
+                return
+        best = max(good, key=lambda c: len(c.text))
+        run.final = best.text
+        run.emit({"type": "final", "text": best.text, "judge": None,
+                  "note": "no judge available; showing the longest answer"})
+
+    async def add_manual(self, run: Run, source: str, text: str) -> None:
+        cand = Candidate(f"manual/{source}", text.strip())
+        run.candidates.append(cand)
+        run.emit({"type": "manual_added", "model": cand.ref, "text": cand.text})
+
+    async def rejudge(self, run: Run) -> None:
+        run.finished = False
+        try:
+            await self.judge(run)
+        except NathanError as e:
+            run.emit({"type": "error", "message": str(e)})
+        finally:
+            run.finished = True
+            run.emit({"type": "done"})
