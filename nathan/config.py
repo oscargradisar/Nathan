@@ -35,11 +35,18 @@ class Provider(BaseModel):
     signup: str | None = None
     account_limits: Limits = Field(default_factory=Limits)
     models: dict[str, ModelSpec]
+    # Set by tests or the desktop app to bypass .env lookup. Never written to disk.
+    key_override: str | None = Field(default=None, repr=False, exclude=True)
 
     @property
     def api_key(self) -> str | None:
+        if self.key_override:
+            return self.key_override
         key = os.getenv(self.key_env, "").strip()
         return key or None
+
+    def ref(self, model: str) -> str:
+        return f"{self.name}/{model}"
 
 
 def load_providers(path: Path = DEFAULT_CONFIG, env_file: Path | None = ROOT / ".env") -> dict[str, Provider]:

@@ -12,12 +12,12 @@ Work top to bottom. Each tier ends with a **gate** — don't move on until it pa
 
 ## Tier 1 — One client for every provider
 
-- [ ] `providers.yaml` holds base URL, key name, models, limits and capability tags for every provider
-- [ ] `nathan/client.py`: one async `chat(provider, model, messages)` for all providers
-- [ ] Retry with backoff on 429/5xx; typed errors for "quota gone" vs "provider down"
-- [ ] CLI: `nathan ask "question" --model groq/openai/gpt-oss-120b`
-- [ ] Tests with mocked providers
-- [ ] **Gate:** the same question answered by four different providers from the CLI
+- [x] `providers.yaml` holds base URL, key name, models, limits and capability tags for every provider
+- [x] `nathan/client.py`: one async `chat(provider, model, messages)` for all providers
+- [x] Retry with backoff on 429/5xx; typed errors for "quota gone" vs "provider down"
+- [x] CLI: `nathan ask "question" --model groq/openai/gpt-oss-120b`
+- [x] Tests with mocked providers
+- [ ] **Gate:** the same question answered by four different providers from the CLI — code done — live gate pending (needs keys, run on owner's computer)
 
 ## Tier 2 — Parallel fan-out and quota manager
 
