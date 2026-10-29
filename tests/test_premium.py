@@ -14,9 +14,10 @@ def fake_sources():
     def handler(req):
         host = req.url.host
         if "wikipedia" in host:
+            if req.url.params.get("list") == "search":
+                return httpx.Response(200, json={"query": {"search": [{"title": "Ljubljana"}]}})
             return httpx.Response(200, json={"query": {"pages": {"1": {
-                "index": 1, "title": "Ljubljana", "fullurl": "https://en.wikipedia.org/wiki/Ljubljana",
-                "extract": "Ljubljana is the capital of Slovenia, population about 295,000."}}}})
+                "title": "Ljubljana", "extract": "Ljubljana is the capital of Slovenia, population about 295,000."}}}})
         if "duckduckgo" in host:
             return httpx.Response(200, json={"AbstractText": "Capital city of Slovenia.",
                                              "AbstractURL": "https://ddg.example/lj", "Heading": "Ljubljana"})
@@ -121,3 +122,13 @@ async def test_review_needs_a_manager(make_engine):
     engine = make_engine(lambda *a, **k: "x")
     with pytest.raises(RuntimeError, match="No manager connected"):
         await run_review(engine, connected=[])
+
+
+def test_passages_keep_the_matching_paragraphs():
+    from nathan.research import passages
+
+    text = ("Intro about the city and its long history of trade and culture.\n\n"
+            + "Filler paragraph about unrelated weather patterns and seasons here.\n\n" * 30
+            + "The Opera Game was played in 1858 in Paris against the Duke of Brunswick.")
+    out = passages(text, "Opera Game 1858 Brunswick", budget=300)
+    assert "Duke of Brunswick" in out and len(out) <= 300

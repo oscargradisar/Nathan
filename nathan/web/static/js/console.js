@@ -7,6 +7,7 @@ import { canListen, listen, say, stop as stopSpeech } from "./voice.js";
 export const MODES = [
   { id: "auto", label: "Auto", help: "Nathan decides: a quick model for small things, the whole company for big ones." },
   { id: "single", label: "Quick", help: "One fast model. For when you just need an answer." },
+  { id: "research", label: "Research", help: "Searches Wikipedia, papers, forums and the web, then several models answer from the sources with citations and a verifier cross-checks." },
   { id: "workflow", label: "Workflow", help: "A manager splits it into parts, workers do them in parallel, a writer joins them, a reviewer checks." },
   { id: "vote", label: "Council", help: "Five models answer separately; a judge merges the best of each." },
   { id: "swarm", label: "Swarm", help: "Everyone available answers at once, then a judge merges. Loud, thorough, free." },
@@ -77,10 +78,12 @@ function setMode(id, quiet = false) {
 }
 
 export function ask(text, as) {
+  const keep = mode;
   $("prompt").value = text;
   if (as) setMode(as, true);
   location.hash = "#console";
-  start();
+  start();  // reads `mode` before its first await
+  if (as && !MODES.some((m) => m.id === as)) setMode(keep, true);  // Code/Review aren't chips: don't stick
 }
 
 // ---- running ----------------------------------------------------------------------------
@@ -89,7 +92,7 @@ async function start() {
   if (!prompt || $("go").disabled) return;
   stopFollow && stopFollow(); stopSpeech();
   reset();
-  busy(true, "ROUTING", mode === "auto" ? "deciding how to handle this" : MODES.find((m) => m.id === mode).label.toLowerCase());
+  busy(true, "ROUTING", mode === "auto" ? "deciding how to handle this" : (MODES.find((m) => m.id === mode)?.label || { code: "programming", review: "performance review" }[mode] || mode).toLowerCase());
   play("start"); say_(startLine());
   try {
     run = await api("/api/runs", { prompt, mode, n: 5 });
@@ -99,8 +102,19 @@ async function start() {
   stopFollow = follow(run.id, 0, handle);
 }
 
+function sources(items) {
+  const old = $("sources"); if (old) old.remove();
+  if (!items.length) return;
+  const ol = el("ol");
+  for (const s of items) ol.append(el("li", {}, el("a", { href: s.url, target: "_blank", rel: "noopener" }, s.title || s.url),
+    el("span", { class: "src" }, s.source)));
+  $("units").after(el("div", { class: "panel sources", id: "sources" }, el("header", {}, el("h2", {}, `Sources · ${items.length}`)), ol));
+}
+
 function reset() {
   units.clear(); contributors = new Set();
+  const src = $("sources"); if (src) src.remove();
+  for (const n of $("answer").querySelectorAll(".row")) n.remove();
   $("units").textContent = ""; $("route").hidden = true;
   for (const id of ["answer", "review", "prayer"]) $(id).hidden = true;
   $("approve-note").textContent = ""; $("prayer-reply").value = "";
@@ -116,7 +130,9 @@ function busy(on, big = "", small = "") {
 }
 
 const DOING = { answerer: "ANSWERING", drafter: "DRAFTING", critic: "CRITIQUING", reviser: "REVISING",
-  racer: "RACING", writer: "WRITING", reviewer: "REVIEWING" };
+  racer: "RACING", writer: "WRITING", reviewer: "REVIEWING", scout: "SCOUTING", source: "SEARCHING",
+  analyst: "ANALYSING", verifier: "VERIFYING", "premium researcher": "RESEARCHING", coder: "CODING",
+  manager: "MANAGING", "assistant manager": "REVIEWING", "research director": "REVIEWING" };
 
 function handle(ev) {
   say_(quip(ev));
@@ -154,12 +170,13 @@ function handle(ev) {
       play("fail"); break;
     case "delivered":
       if (ev.role === "patient") break;
-      unit(ev.id, { model: ev.worker, status: "done", text: ev.text, state: `done · ${ev.seconds}s`, backups: [] });
-      if (ev.role === "worker" || ev.role === "writer") contributors.add(ev.worker);
+      unit(ev.id, { model: ev.worker, status: "done", text: ev.text, backups: [],
+        state: ev.seconds != null ? `done · ${ev.seconds}s` : "done" });
+      if (["worker", "writer", "analyst", "premium researcher", "verifier", "coder"].includes(ev.role)) contributors.add(ev.worker);
       play("done"); break;
     case "task_failed":
       if (ev.role === "patient") break;
-      unit(ev.id, { status: "failed", state: "nobody could do it" }); play("fail"); break;
+      unit(ev.id, { status: "failed", state: ev.reason || "nobody could do it" }); play("fail"); break;
     case "redo":
       for (const id of ev.ids) { const u = unit(id, { status: "queued", state: `redo (scored ${ev.scores[id]}/10)` }); addLog(u, "reviewer sent it back"); }
       play("backup"); break;
@@ -197,6 +214,13 @@ function handle(ev) {
     case "judge_delta": { const u = units.get("judge"); if (u) { u.text += ev.text; paintText(u); } break; }
     case "judge_failed": { const u = unit("judge", {}); addLog(u, `${short(ev.model)} couldn't judge (${ev.reason})`); break; }
     case "manual_added": unit("manual" + units.size, { role: "pasted", model: ev.model, status: "done", text: ev.text }); break;
+    case "sources": sources(ev.items); break;
+    case "saved": {
+      const a = $("answer");
+      const note = el("div", { class: "row" }, el("span", { class: "tag" }, `saved ${ev.files.length} file(s)`),
+        el("button", { class: "mini", onclick: () => api("/api/open-workspace", {}) }, "Open workspace"));
+      a.append(note); play("done"); break;
+    }
     case "final": case "blessed": {
       const j = units.get("judge");
       if (j && j.status === "working") unit("judge", { status: "done", state: "merged", model: ev.judge || j.model });
@@ -210,7 +234,9 @@ function handle(ev) {
 
 function phase(p) {
   const names = { planning: ["PLANNING", "manager is splitting the job"], working: ["WORKING", "parts in progress"],
-    writing: ["WRITING", "joining it all up"], reviewing: ["REVIEWING", "asked vs got"], fixing: ["FIXING", "redoing weak parts"] };
+    writing: ["WRITING", "joining it all up"], reviewing: ["REVIEWING", "asked vs got"], fixing: ["FIXING", "redoing weak parts"],
+    scouting: ["SCOUTING", "deciding what to search"], searching: ["SEARCHING", "six sources at once"],
+    analysing: ["ANALYSING", "reading the evidence"], verifying: ["VERIFYING", "cross-checking claims"] };
   if (names[p]) { $("core-big").textContent = names[p][0]; $("core-small").textContent = names[p][1]; }
 }
 

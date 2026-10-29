@@ -201,6 +201,34 @@ def create_app(engine, hub: Hub | None = None, self_check: bool = False) -> Fast
             raise HTTPException(400, str(e)) from e
         return {"ok": True}
 
+    @app.get("/api/projects")
+    def projects() -> dict:
+        root = Path(engine.workspace) / "code"
+        items = []
+        if root.is_dir():
+            for d in sorted(root.iterdir(), key=lambda d: d.stat().st_mtime, reverse=True):
+                if d.is_dir():
+                    items.append({"name": d.name, "ts": d.stat().st_mtime,
+                                  "files": sum(1 for f in d.rglob("*") if f.is_file())})
+        return {"projects": items}
+
+    @app.post("/api/projects/{name}/open")
+    def open_project(name: str) -> dict:
+        import os
+        import subprocess
+        import sys
+
+        from nathan.tools.files import safe_path
+
+        folder = safe_path(Path(engine.workspace) / "code", name)
+        if not folder.is_dir():
+            raise HTTPException(404, "no such project")
+        if sys.platform == "win32":
+            os.startfile(folder)
+        else:
+            subprocess.run(["open" if sys.platform == "darwin" else "xdg-open", str(folder)], check=False)
+        return {"path": str(folder)}
+
     @app.get("/api/history")
     async def history(limit: int = 20) -> dict:
         items = []

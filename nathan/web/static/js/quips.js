@@ -20,6 +20,9 @@ const T = {
     swarm: ["Routing: swarm. Everyone answers. This is either wisdom of crowds or a group chat."],
     critique: ["Routing: critique. One writes, one criticises, one fixes. Workplace realism."],
     workflow: ["Routing: workflow. A manager is about to delegate, which is the whole job of a manager."],
+    research: ["Routing: research. Actual sources this time. The models have been told to cite or be quiet."],
+    code: ["Routing: programming. ChatGPT is putting on its manager lanyard."],
+    review: ["Performance review. The models have been told it's 'just a conversation'. It is not."],
     agent: ["Routing: agent. It may touch files. Supervised, like a toddler with scissors."],
   },
   plan: ["Manager split this into {n} parts and assigned them. It did none of the parts. Classic.",
@@ -65,7 +68,8 @@ export function quip(ev) {
     case "working": return ev.role === "patient" ? null : [fill(pick(T.working), { m, id: label(ev) }), "sys"];
     case "backup": return [fill(pick(T.backup), { m, slow: short(ev.for), id: label(ev) }), "warn"];
     case "reassigned": return [fill(pick(T.reassigned), { m, from: short(ev.from), id: label(ev), why: why(ev.reason) }), "warn"];
-    case "delivered": return ev.role === "patient" ? null : [fill(pick(T.delivered), { m, id: label(ev), s: ev.seconds }), "good"];
+    case "delivered": return ev.role === "patient" ? null
+      : [fill(ev.seconds != null ? pick(T.delivered) : "{m} delivered {id}.", { m, id: label(ev), s: ev.seconds }), "good"];
     case "task_failed": return ev.role === "patient" ? null : [fill(pick(T.failed), { id: label(ev) }), "bad"];
     case "redo": return [fill(pick(T.redo), { ids: ev.ids.join(", ") }), "warn"];
     case "phase":
@@ -79,6 +83,8 @@ export function quip(ev) {
       return [fill(pick(T.ratings), { best: short(e[0][0]), worst: short(e[e.length - 1][0]) }), "quip"];
     }
     case "prayer": return [pick(T.prayer), "quip"];
+    case "sources": return [`${ev.items.length} sources found. Nobody gets to make things up now. Officially.`, "quip"];
+    case "saved": return [`Saved ${ev.files.length} file(s). It compiles in spirit.`, "good"];
     case "blessed": return [pick(T.blessed), "good"];
     case "lane_done": return ev.ok ? [fill(pick(T.lane), { m }), "sys"] : null;
     case "judge_start": return [fill(pick(T.judge), { m }), "sys"];
@@ -94,7 +100,10 @@ export const startLine = () => [pick(T.start), "quip"];
 export const finalLine = (k) => [fill(pick(T.final), { k }), "good"];
 export const errorLine = (msg) => [fill(pick(T.error), { msg }), "bad"];
 
-function label(ev) { return ev.role === "writer" ? "the write-up" : ev.role === "reviewer" ? "the review" : ev.id; }
+function label(ev) {
+  return { writer: "the write-up", reviewer: "the review", source: `the ${ev.worker} search`, scout: "the search plan",
+    verifier: "the fact-check", "premium researcher": "web research" }[ev.role] || ev.id;
+}
 function cap(s) { return s ? s[0].toUpperCase() + s.slice(1) : s; }
 function why(r) {
   return { QuotaExceeded: "free limit hit", ProviderDown: "no answer", ModelGone: "model retired",

@@ -6,7 +6,8 @@ citations, and a verifier cross-checks them into one cited answer with a confide
 
   1. scout     a quick model turns the question into a few search queries
   2. search    Wikipedia, DuckDuckGo instant answers, Stack Overflow, OpenAlex (papers),
-               arXiv and Hacker News, all at once; pages HN links to are read too
+               arXiv, Hacker News and Marginalia web search, all at once; linked pages are
+               read in full, keeping the passages that match the question
   3. analysts  several models on different providers answer from the evidence only
   4. verifier  merges, checks claims against the sources, notes disagreements
 
@@ -32,10 +33,12 @@ from nathan.jsonutil import race_json
 from nathan.tools.fetch import html_to_text
 
 Emit = Callable[[dict[str, Any]], Awaitable[None] | None]
-UA = {"user-agent": "Nathan/1.0 (free multi-model research app; github.com/oscargradisar/Nathan)"}
+# Wikimedia rejects clients whose User-Agent lacks a real https:// contact URL
+UA = {"user-agent": "Nathan/1.0 (https://github.com/oscargradisar/Nathan) httpx2"}
 SNIPPET = 1800        # characters of text kept per source item
 MAX_EVIDENCE = 16     # items handed to the analysts
 ANALYSTS = 4
+SOURCE_BUDGET_S = 15.0  # a source that takes longer keeps what it found so far
 
 SCOUT_SYSTEM = """You plan web research. Turn the question into 2-4 short search queries
 (keywords, not sentences) that would find the answer in Wikipedia, papers or forums.
@@ -78,15 +81,63 @@ def _clean(text: str) -> str:
     return re.sub(r"\s+", " ", html_to_text(text or "")).strip()[:SNIPPET]
 
 
+def passages(text: str, query: str, budget: int = SNIPPET) -> str:
+    """The paragraphs of a long page that best match the query, kept in page order.
+    Specifics (dates, names) usually live deep in an article, not in its intro."""
+    terms = {w for w in re.findall(r"\w+", query.lower()) if len(w) > 2}
+    paras = [re.sub(r"\s+", " ", p).strip() for p in re.split(r"\n\s*\n|\n(?=[A-Z=])", text)]
+    paras = [p for p in paras if len(p) > 40]
+    if not paras:
+        return _clean(text)
+    score = [sum(t in p.lower() for t in terms) for p in paras]
+    ranked = sorted(range(len(paras)), key=lambda i: -score[i])
+    keep, used = set(), 0
+    for i in ranked:
+        if keep and (score[i] == 0 or used + len(paras[i]) > budget):
+            continue  # only matching paragraphs that fit; the best one always makes it
+        keep.add(i)
+        used += len(paras[i])
+    return " … ".join(paras[i] for i in sorted(keep))[:budget]
+
+
 # ---- sources: each returns [(title, url, text)] ----------------------------------------
 
+WIKI = "https://en.wikipedia.org/w/api.php"
+
+
 async def wikipedia(http, q: str) -> list[tuple[str, str, str]]:
-    r = await http.get("https://en.wikipedia.org/w/api.php", params={
-        "action": "query", "generator": "search", "gsrsearch": q, "gsrlimit": 3, "prop": "extracts|info",
-        "inprop": "url", "explaintext": 1, "exchars": SNIPPET, "exlimit": 3, "format": "json"})
-    pages = (r.json().get("query") or {}).get("pages") or {}
-    return [(p["title"], p.get("fullurl", ""), p.get("extract", "")) for p in
-            sorted(pages.values(), key=lambda p: p.get("index", 0)) if p.get("extract")]
+    """Search, then read the top articles in full and keep the passages that match."""
+    hits = (await http.get(WIKI, params={"action": "query", "list": "search", "srsearch": q,
+                                         "srlimit": 2, "format": "json"})).json()
+    out = []
+    for h in (hits.get("query") or {}).get("search", []):
+        title = h["title"]
+        pages = (await http.get(WIKI, params={"action": "query", "prop": "extracts", "explaintext": 1,
+                                              "titles": title, "redirects": 1, "format": "json"})
+                 ).json().get("query", {}).get("pages", {})
+        text = next((p.get("extract", "") for p in pages.values()), "")
+        if text:
+            out.append((title, "https://en.wikipedia.org/wiki/" + quote(title.replace(" ", "_")),
+                        passages(text, q)))
+    return out
+
+
+async def marginalia(http, q: str) -> list[tuple[str, str, str]]:
+    """Marginalia Search: a free, official web search API (public key, rate-limited) that
+    is good at niche, non-commercial pages. The top results are read and trimmed to passages."""
+    j = (await http.get(f"https://api.marginalia.nu/public/search/{quote(q)}", params={"count": 4})).json()
+    out = []
+    for r in j.get("results", [])[:3]:
+        text = r.get("description", "")
+        try:
+            page = await http.get(r["url"], follow_redirects=True)
+            if "html" in page.headers.get("content-type", ""):
+                text = passages(html_to_text(page.text[:400_000]), q) or text
+        except httpx.HTTPError:
+            pass
+        if text:
+            out.append((r.get("title") or r["url"], r["url"], text))
+    return out
 
 
 async def duckduckgo(http, q: str) -> list[tuple[str, str, str]]:
@@ -141,7 +192,7 @@ async def hackernews(http, q: str) -> list[tuple[str, str, str]]:
             try:
                 page = await http.get(h["url"], follow_redirects=True)
                 if "html" in page.headers.get("content-type", ""):
-                    text = page.text[:200_000]
+                    text = passages(html_to_text(page.text[:400_000]), q)
             except httpx.HTTPError:
                 pass
         if text:
@@ -149,8 +200,8 @@ async def hackernews(http, q: str) -> list[tuple[str, str, str]]:
     return out
 
 
-SOURCES = {"Wikipedia": wikipedia, "DuckDuckGo": duckduckgo, "Stack Overflow": stackoverflow,
-           "OpenAlex": openalex, "arXiv": arxiv, "Hacker News": hackernews}
+SOURCES = {"Wikipedia": wikipedia, "Web (Marginalia)": marginalia, "DuckDuckGo": duckduckgo,
+           "Stack Overflow": stackoverflow, "OpenAlex": openalex, "arXiv": arxiv, "Hacker News": hackernews}
 
 
 async def gather_evidence(queries: list[str], emit: Emit | None = None,
@@ -162,11 +213,18 @@ async def gather_evidence(queries: list[str], emit: Emit | None = None,
     async def one(name: str) -> None:
         await _emit(emit, {"type": "working", "id": "src:" + name, "worker": name, "role": "source"})
         items: list[tuple[str, str, str]] = []
-        for q in queries:
+
+        async def search(q: str) -> None:
             try:
-                items += await SOURCES[name](http, q)
+                items.extend(await SOURCES[name](http, q))
             except (httpx.HTTPError, ValueError, ET.ParseError, KeyError):
-                continue  # one source failing must not sink the research
+                pass  # one source failing must not sink the research
+
+        # queries in parallel, and a slow source keeps what it found by the deadline
+        tasks = [asyncio.create_task(search(q)) for q in queries]
+        _, late = await asyncio.wait(tasks, timeout=SOURCE_BUDGET_S)
+        for t in late:
+            t.cancel()
         found[name] = items
         await _emit(emit, {"type": "delivered" if items else "task_failed", "id": "src:" + name,
                            "worker": name, "role": "source", "seconds": None,
@@ -178,7 +236,16 @@ async def gather_evidence(queries: list[str], emit: Emit | None = None,
     finally:
         if own:
             await http.aclose()
-    # Round-robin across sources so one chatty source can't crowd out the rest
+    # Drop off-topic hits (a paper that only shares the word "game"), then round-robin
+    # across sources so one chatty source can't crowd out the rest
+    terms = {w for w in re.findall(r"\w+", " ".join(queries).lower()) if len(w) > 3}
+    need = min(2, len(terms))
+
+    def relevant(item: tuple[str, str, str]) -> bool:
+        blob = (item[0] + " " + item[2]).lower()
+        return sum(t in blob for t in terms) >= need
+
+    found = {name: [i for i in items if relevant(i)] for name, items in found.items()}
     evidence: list[Evidence] = []
     seen: set[str] = set()
     pools = [list(v) for v in found.values()]

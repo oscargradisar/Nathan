@@ -239,3 +239,13 @@ td .sub { color: var(--dim); font: 11.5px var(--mono); }
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
 .md hr { border: 0; border-top: 1px solid var(--line2); margin: 1em 0; }
+.sub-h { font: 600 12px var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--cyan); margin: 22px 0 8px; }
+.plans-help { max-width: 860px; margin: 0 0 10px; }
+.mgr .a-name { color: var(--amber); }
+.mgr .title { font: 11px var(--mono); color: var(--muted); }
+.sources { margin-top: 10px; }
+.sources ol { margin: 4px 0 0; padding-left: 22px; font-size: 13.5px; }
+.sources li { margin: 3px 0; overflow-wrap: anywhere; }
+.sources .src { font: 11px var(--mono); color: var(--dim); margin-left: 6px; }
+.saved { border-color: var(--ok); }
+.td-note { white-space: normal !important; max-width: 340px; color: var(--muted); font-size: 12.5px; }

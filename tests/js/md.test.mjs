@@ -32,3 +32,7 @@ test("common LaTeX becomes plain symbols", () => {
   const out = md(String.raw`\(1001 = 7 \times 11 \times 13\) and $$\mathbf{x} \le 2$$`);
   assert.ok(out.includes("1001 = 7 × 11 × 13") && out.includes("x ≤ 2") && !out.includes("\\"));
 });
+
+test("model-specific citation marks become [n]", () => {
+  assert.ok(md("In 1858 【2†L1-L4】 they played.").includes("In 1858 [2] they played."));
+});

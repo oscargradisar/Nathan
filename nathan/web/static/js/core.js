@@ -79,6 +79,7 @@ const TEX = { times: "×", cdot: "·", le: "≤", ge: "≥", ne: "≠", approx: 
   infty: "∞", rightarrow: "→", to: "→", leftarrow: "←", sqrt: "√", pi: "π", alpha: "α", beta: "β", theta: "θ" };
 function untex(s) {
   return s
+    .replace(/【(\d+)[^】]*】/g, "[$1]")  // gpt-oss style citations → [n]
     .replace(/\$\$([^$]+)\$\$|\\\[([\s\S]*?)\\\]|\\\(([\s\S]*?)\\\)/g, (_, a, b, c) => a ?? b ?? c)
     .replace(/\\(?:mathbf|textbf|text|mathrm)\{([^}]*)\}/g, "$1")
     .replace(/\\frac\{([^}]*)\}\{([^}]*)\}/g, "($1)/($2)")

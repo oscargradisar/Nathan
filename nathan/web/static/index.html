@@ -25,6 +25,7 @@
 
 <nav class="rail" aria-label="Sections">
   <a href="#console" data-view="console"><b>◎</b><span>Console</span></a>
+  <a href="#code" data-view="code"><b>⌘</b><span>Code</span></a>
   <a href="#staff" data-view="staff"><b>▲</b><span>Staff</span></a>
   <a href="#accounts" data-view="accounts"><b>⚿</b><span>Accounts</span></a>
   <a href="#history" data-view="history"><b>≡</b><span>History</span></a>
@@ -102,11 +103,25 @@
     </div>
   </section>
 
+  <!-- CODE -->
+  <section class="view" id="view-code" aria-label="Programming" hidden>
+    <div class="view-head"><h1>Programming</h1>
+      <p class="muted">Describe what to build. <b id="code-boss">ChatGPT</b> plans the files, free coding models write them in parallel, the manager reviews and fixes them, and the result is saved to your workspace.</p></div>
+    <form id="code-form" class="cmd" autocomplete="off">
+      <label class="sr-only" for="code-prompt">What should the team build?</label>
+      <textarea id="code-prompt" rows="3" placeholder="e.g. a Python script that renames my photos by the date they were taken"></textarea>
+      <div class="cmd-row"><span class="muted" id="code-note"></span><span class="spacer"></span><button type="submit" class="go">BUILD</button></div>
+    </form>
+    <h2 class="sub-h">Projects</h2>
+    <ul id="projects" class="history"></ul>
+  </section>
+
   <!-- STAFF -->
   <section class="view" id="view-staff" aria-label="Staff" hidden>
     <div class="view-head"><h1>Staff</h1><p class="muted">Every model starts at 1000 Elo. After each workflow the reviewer scores every part, and workers on the same job win or lose points against each other. Not showing up costs points; running out of free quota doesn't. Higher Elo gets picked first.</p></div>
+    <div class="row"><button id="review-btn" class="go small">Performance review</button><span id="review-note" class="muted">Your managers judge recent work, blind. ChatGPT drafts, Claude decides; it counts double.</span></div>
     <div class="ranks" id="ranks"></div>
-    <div class="panel table-panel"><table><thead><tr><th>#</th><th>Rank</th><th>Model</th><th class="num">Elo</th><th class="num">Done</th><th class="num">No-shows</th><th class="num">W–L</th><th class="num">Avg score</th><th class="num">Avg time</th></tr></thead><tbody id="board"></tbody></table></div>
+    <div class="panel table-panel"><table><thead><tr><th>#</th><th>Rank</th><th>Model</th><th class="num">Elo</th><th class="num">Done</th><th class="num">No-shows</th><th class="num">W–L</th><th class="num">Avg score</th><th class="num">Avg time</th><th>Manager's note</th></tr></thead><tbody id="board"></tbody></table></div>
   </section>
 
   <!-- ACCOUNTS -->
@@ -115,6 +130,10 @@
       <p class="muted">Press <b>Get key</b>: your browser opens that provider's key page. Sign in (free), create a key, press its Copy button, and Nathan picks it up. Keys stay in this computer's keychain.</p>
       <p id="first-run" class="banner" hidden>Connect two accounts and Nathan opens the console by itself. Groq and Gemini are good first picks.</p>
     </div>
+    <h2 class="sub-h">Your premium plans · management</h2>
+    <p class="muted plans-help">Lend Nathan the AI plans you already pay for, through each company's official app. They sign in with your own account (no API keys, nothing extra to pay) and only do manager work: reviews, verification, web research, code review. Their usage counts toward your plan's normal limits.</p>
+    <div id="managers" class="accounts"></div>
+    <h2 class="sub-h">Free staff</h2>
     <div id="accounts" class="accounts"></div>
   </section>
 

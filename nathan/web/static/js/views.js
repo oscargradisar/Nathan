@@ -18,7 +18,8 @@ export function renderStaff(staff) {
       el("td", {}, short(s.ref), el("span", { class: "sub" }, ` · ${provider(s.ref)}${s.working ? " · working now" : ""}`)),
       el("td", { class: "num" }, s.elo), el("td", { class: "num" }, s.done), el("td", { class: "num" }, s.no_shows),
       el("td", { class: "num" }, `${s.wins}–${s.losses}`), el("td", { class: "num" }, s.avg_score ?? "–"),
-      el("td", { class: "num" }, s.avg_seconds != null ? s.avg_seconds + "s" : "–")));
+      el("td", { class: "num" }, s.avg_seconds != null ? s.avg_seconds + "s" : "–"),
+      el("td", { class: "td-note" }, s.verdict ? `${s.verdict.by}: ${s.verdict.score}/10 · ${s.verdict.note}` : "")));
   }
   const duty = $("duty"); duty.textContent = "";
   const sorted = [...staff.filter((s) => s.working), ...staff.filter((s) => !s.working)].slice(0, 14);
@@ -69,6 +70,57 @@ async function connect(p) {
     toast(p.method === "manual" ? "Key page opened. Create a key and paste it here." : "Key page opened in your browser. Create a key and press Copy.", 4500);
     if (p.method === "manual") renderAccounts().then(() => document.querySelector(`[aria-label="${p.provider} key"]`)?.parentElement.classList.add("open"));
   } catch (e) { toast(e.message, 4500); }
+}
+
+// ---- premium plans (managers) ------------------------------------------------------------
+const ROLE_NOTE = {
+  claude: "the boss: final word on reviews, verifies research",
+  chatgpt: "assistant manager · runs Programming · searches the web",
+  gemini: "research director · searches with Google",
+};
+
+export async function renderManagers() {
+  const { managers } = await api("/api/managers");
+  const box = $("managers"); box.textContent = "";
+  for (const m of managers) {
+    const state = m.signed_in ? "connected" : m.installed ? "not signed in" : "not installed";
+    const busy = el("span", { class: "muted" });
+    const act = async (path, msg) => {
+      busy.textContent = msg;
+      try { await api(path, {}); play("route"); } catch (e) { toast(e.message, 6000); play("fail"); }
+      busy.textContent = ""; renderManagers();
+    };
+    box.append(el("div", { class: "panel acct mgr" },
+      el("div", { class: "a-top" }, el("span", { class: "a-name" }, m.name), el("span", { class: "title" }, m.title),
+        el("span", { class: "state " + (m.signed_in ? "connected" : "waiting") }, state)),
+      el("div", { class: "a-info" }, `${ROLE_NOTE[m.id]} · uses your ${m.plan} plan`),
+      el("div", { class: "a-actions" },
+        !m.installed && el("button", { class: "go small", onclick: () => act(`/api/managers/${m.id}/install`, "installing (a minute or two)…") }, "Install"),
+        m.installed && !m.signed_in && el("button", { class: "go small", onclick: async () => {
+          await act(`/api/managers/${m.id}/signin`, "");
+          toast(m.id === "gemini" ? "A window opened: choose 'Login with Google', finish in the browser, then close it."
+            : "Your browser opened to sign in. Come back when it says you're done.", 7000);
+          const until = Date.now() + 5 * 60 * 1000;
+          const poll = setInterval(async () => {
+            const s = (await api("/api/managers")).managers.find((x) => x.id === m.id);
+            if (s?.signed_in || Date.now() > until) { clearInterval(poll); renderManagers(); if (s?.signed_in) { play("final"); toast(`${m.name} is on the management team.`); } }
+          }, 4000);
+        } }, "Sign in"),
+        el("button", { class: "mini", onclick: renderManagers }, "Refresh"), busy)));
+  }
+  return managers;
+}
+
+// ---- programming projects ----------------------------------------------------------------
+export async function renderProjects() {
+  const { projects } = await api("/api/projects");
+  const list = $("projects"); list.textContent = "";
+  if (!projects.length) list.append(el("li", {}, el("span", { class: "h-q muted" }, "No projects yet. The first one is always the hardest; the models won't tell you that.")));
+  for (const p of projects) {
+    list.append(el("li", { tabindex: "0", onclick: () => api(`/api/projects/${encodeURIComponent(p.name)}/open`, {}) },
+      el("time", {}, new Date(p.ts * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" })),
+      el("span", { class: "h-q" }, p.name), el("span", { class: "h-mode" }, `${p.files} file${p.files === 1 ? "" : "s"} · open folder`)));
+  }
 }
 
 // ---- history -----------------------------------------------------------------------------
