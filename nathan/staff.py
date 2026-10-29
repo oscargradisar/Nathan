@@ -48,6 +48,11 @@ class Staff:
         row = self.db.execute("SELECT elo FROM staff WHERE ref = ?", (ref,)).fetchone()
         return row[0] if row else START
 
+    def seconds(self, ref: str) -> float | None:
+        """Average answer time in seconds, or None if this model hasn't delivered yet."""
+        row = self.db.execute("SELECT ms_sum, done FROM staff WHERE ref = ?", (ref,)).fetchone()
+        return row[0] / row[1] / 1000 if row and row[1] else None
+
     def record(self, ref: str, *, ok: bool, ms: float = 0.0) -> None:
         """One assignment: the worker either delivered or was a no-show."""
         self._ensure(ref)

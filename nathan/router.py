@@ -7,6 +7,7 @@ model is unavailable or talks nonsense, a keyword heuristic decides instead.
 
 from __future__ import annotations
 
+import asyncio
 import re
 from typing import Literal
 
@@ -17,6 +18,8 @@ from nathan.jsonutil import ask_json
 
 TaskType = Literal["chat", "factual", "code", "math", "writing", "research", "analysis"]
 Pattern = Literal["single", "race", "vote", "critique", "plan", "agent"]
+
+ROUTE_TIMEOUT_S = 8.0
 
 # Which roster tags suit each task type (tags themselves live in providers.yaml)
 TAGS_FOR: dict[str, list[str]] = {
@@ -73,14 +76,17 @@ def heuristic_route(question: str) -> Route:
 
 
 async def route(engine, question: str) -> Route:  # engine: nathan.engine.Engine
-    refs = engine.roster.pick(["cheap", "fast"], 2)
+    # Routing is pure overhead to the person waiting, so the quickest models do it, and if
+    # they dawdle the keyword rules decide instantly instead.
+    refs = engine.fastest(["cheap", "fast"])[:3]
     if not refs:
         return heuristic_route(question)
     messages = [{"role": "system", "content": ROUTER_SYSTEM},
                 {"role": "user", "content": f"TASK:\n{question[:4000]}"}]
     try:
-        r, ref = await ask_json(engine.client, refs, messages, Route, max_tokens=200, temperature=0)
-    except NoModelAvailable:
+        r, ref = await asyncio.wait_for(ask_json(engine.client, refs, messages, Route,
+                                                 max_tokens=300, temperature=0), ROUTE_TIMEOUT_S)
+    except (NoModelAvailable, TimeoutError):
         return heuristic_route(question)
     r.by = ref
     r.tags = TAGS_FOR.get(r.task_type, [])

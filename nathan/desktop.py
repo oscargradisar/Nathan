@@ -68,7 +68,7 @@ def start_server(engine=None, port: int | None = None, self_check: bool = True):
 
 def first_page(engine) -> str:
     connected = sum(1 for p in engine.providers.values() if p.key_env and p.api_key)  # gateways need no account
-    return "/workflow" if connected >= MIN_CONNECTED else "/connect?first=1"
+    return "/#console" if connected >= MIN_CONNECTED else "/#accounts"
 
 
 def edge_path() -> str | None:

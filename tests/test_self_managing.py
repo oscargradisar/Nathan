@@ -85,3 +85,29 @@ def test_status_and_history(make_engine):
         history = client.get("/api/history").json()["items"]
     assert status["staff_ready"] > 0 and status["memories"] >= 2
     assert history[0]["question"] == "What is 2+2?" and history[0]["mode"] == "single"
+
+
+async def test_slow_router_falls_back_to_keywords(make_engine, monkeypatch):
+    import asyncio
+
+    from nathan import router
+
+    monkeypatch.setattr(router, "ROUTE_TIMEOUT_S", 0.05)
+
+    async def slow(ref, messages, **kw):
+        await asyncio.sleep(2)
+        return "{}"
+
+    engine = make_engine(slow)
+    r = await router.route(engine, "Research and compare solar and wind power in a brief")
+    assert r.by == "heuristic" and r.pattern == "plan"
+
+
+async def test_quick_mode_prefers_the_fastest_model(make_engine):
+    engine = make_engine(lambda ref, m, **k: f"answer from {ref}")
+    slow, fast = engine.roster.candidates(["fast"])[:2]
+    engine.staff.record(slow, ok=True, ms=30000)
+    engine.staff.record(fast, ok=True, ms=500)
+    assert engine.fastest(["fast"])[0] == fast
+    ans = await engine.ask("hi", mode="single", use_memory=False)
+    assert ans.models == [fast]

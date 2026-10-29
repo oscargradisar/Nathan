@@ -7,8 +7,11 @@ go to different providers at the same time.
 
 from __future__ import annotations
 
+import asyncio
+
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from nathan.errors import NoModelAvailable
 from nathan.jsonutil import ask_json
 
 MAX_TASKS = 10
@@ -77,7 +80,22 @@ class TaskGraph(BaseModel):
 
 
 async def plan(engine, goal: str) -> tuple[TaskGraph, str]:  # engine: nathan.engine.Engine
-    refs = engine.chain(["planner", "reasoning", "long_context"])
+    """Two planners race on separate lanes (best-rated first in each); the first valid plan
+    wins and the other is cancelled. A single slow planner used to hold up the whole job."""
+    refs = engine.chain(["planner", "reasoning", "long_context"])[:6]
     messages = [{"role": "system", "content": PLANNER_SYSTEM},
                 {"role": "user", "content": f"GOAL:\n{goal}"}]
-    return await ask_json(engine.client, refs[:4], messages, TaskGraph, temperature=0.2)
+    lanes = [lane for lane in (refs[0::2], refs[1::2]) if lane]
+    tasks = [asyncio.create_task(ask_json(engine.client, lane, messages, TaskGraph, temperature=0.2))
+             for lane in lanes]
+    errors: list[str] = []
+    try:
+        for next_done in asyncio.as_completed(tasks):
+            try:
+                return await next_done
+            except NoModelAvailable as e:
+                errors.append(str(e))
+    finally:
+        for t in tasks:
+            t.cancel()
+    raise NoModelAvailable("no planner produced a valid plan — " + "; ".join(errors))

@@ -103,15 +103,15 @@ def create_app(engine, hub: Hub | None = None, self_check: bool = False) -> Fast
 
     @app.get("/connect")
     async def connect_page() -> FileResponse:
-        return FileResponse(STATIC / "connect.html")
+        return FileResponse(STATIC / "index.html")  # one-page console
 
     @app.get("/workflow")
     async def workflow_page() -> FileResponse:
-        return FileResponse(STATIC / "workflow.html")
+        return FileResponse(STATIC / "index.html")
 
     @app.get("/leaderboard")
     async def leaderboard_page() -> FileResponse:
-        return FileResponse(STATIC / "leaderboard.html")
+        return FileResponse(STATIC / "index.html")
 
     @app.get("/api/status")
     async def status() -> dict:

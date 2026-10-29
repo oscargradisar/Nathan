@@ -12,7 +12,7 @@ def test_server_starts_and_stops(tmp_path, monkeypatch):
     for p in providers.values():
         monkeypatch.delenv(p.key_env, raising=False)
     engine = Engine(providers, data=tmp_path)
-    assert desktop.first_page(engine) == "/connect?first=1"
+    assert desktop.first_page(engine) == "/#accounts"
 
     server, url = desktop.start_server(engine, self_check=False)  # no network in tests
     try:

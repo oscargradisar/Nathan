@@ -3,50 +3,138 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Nathan Control Room</title>
+<title>Nathan</title>
+<link rel="icon" href="/static/icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<header>
-  <h1>Nathan</h1><span class="muted">6 answers.. 1 answer</span>
-  <nav><a href="/workflow">Workflow</a><a href="/leaderboard">Leaderboard</a><a href="/">Control room</a><a href="/connect">Connect accounts</a></nav>
+<div class="scan" aria-hidden="true"></div>
+
+<header class="top">
+  <div class="brand">
+    <svg class="glyph" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="13" /><circle cx="16" cy="16" r="5" /><path d="M16 3v6M16 23v6M3 16h6M23 16h6" /></svg>
+    <span class="wordmark">NATHAN</span>
+    <span class="slogan">6 answers.. 1 answer</span>
+  </div>
+  <div class="chips" id="chips" aria-live="polite"></div>
+  <div class="toggles">
+    <button id="t-sound" class="toggle" aria-pressed="true" title="Sound effects">♪ <span>Sound</span></button>
+    <button id="t-voice" class="toggle" aria-pressed="false" title="Read answers aloud">◉ <span>Voice</span></button>
+  </div>
 </header>
-<main>
-  <textarea id="prompt" rows="3" placeholder="Ask anything. Ctrl+Enter to run."></textarea>
-  <div class="row" style="margin-top:8px">
-    <label>Mode <select id="mode"></select></label>
-    <label>Lanes <select id="n"><option>3</option><option>4</option><option selected>5</option><option>6</option></select></label>
-    <button id="run" class="primary">Run</button>
-    <span id="status" class="muted"></span>
-  </div>
-  <div class="layout">
-    <section>
-      <div id="lanes" class="lanes"></div>
-      <div id="final" class="card final" hidden>
-        <h3>Final answer <span id="judge" class="badge"></span></h3>
-        <div id="final-body" class="lane-body"></div>
-        <div id="note" class="muted"></div>
-      </div>
-      <div id="manual" class="card manual" style="margin-top:16px" hidden>
-        <h3>Manual lane <span class="badge">ChatGPT · Claude · Gemini websites</span></h3>
-        <div class="muted">No free API exists for these, so you paste: copy the prompt, open a site, paste the answer back. It joins the vote.</div>
-        <div class="row" style="margin-top:8px">
-          <button id="copy-prompt">Copy prompt</button>
-          <span id="sites" class="row"></span>
+
+<nav class="rail" aria-label="Sections">
+  <a href="#console" data-view="console"><b>◎</b><span>Console</span></a>
+  <a href="#staff" data-view="staff"><b>▲</b><span>Staff</span></a>
+  <a href="#accounts" data-view="accounts"><b>⚿</b><span>Accounts</span></a>
+  <a href="#history" data-view="history"><b>≡</b><span>History</span></a>
+  <a href="#systems" data-view="systems"><b>⚙</b><span>Systems</span></a>
+</nav>
+
+<main id="main">
+  <!-- CONSOLE -->
+  <section class="view" id="view-console" aria-label="Console">
+    <div class="console-grid">
+      <div class="stage">
+        <div class="core-wrap">
+          <svg class="core" id="core" viewBox="0 0 200 200" aria-hidden="true">
+            <circle class="ring r1" cx="100" cy="100" r="92" />
+            <circle class="ring r2" cx="100" cy="100" r="78" />
+            <circle class="ring r3" cx="100" cy="100" r="62" />
+            <g class="ticks" id="ticks"></g>
+            <circle class="heart" cx="100" cy="100" r="30" />
+          </svg>
+          <div class="core-label"><div id="core-big">STANDING BY</div><div id="core-small" class="muted">ask anything</div></div>
         </div>
-        <div class="row" style="margin-top:8px">
-          <select id="manual-source"><option>claude.ai</option><option>chatgpt.com</option><option>gemini.google.com</option></select>
-        </div>
-        <textarea id="manual-text" placeholder="Paste the website's answer here"></textarea>
-        <div class="row" style="margin-top:8px"><button id="manual-add">Add as candidate &amp; re-judge</button></div>
+
+        <form id="cmd" class="cmd" autocomplete="off">
+          <label class="sr-only" for="prompt">What do you need?</label>
+          <textarea id="prompt" rows="2" placeholder="What do you need?   / to focus · Enter to run · Shift+Enter for a new line"></textarea>
+          <div class="cmd-row">
+            <div class="modes" id="modes" role="radiogroup" aria-label="How Nathan should work"></div>
+            <div class="cmd-actions">
+              <button type="button" id="mic" class="icon-btn" title="Speak your request" aria-label="Speak your request">🎙</button>
+              <button type="submit" id="go" class="go">RUN</button>
+            </div>
+          </div>
+          <div id="mode-help" class="muted mode-help"></div>
+        </form>
+
+        <div id="route" class="route" hidden></div>
+        <div id="units" class="units" aria-live="polite"></div>
+
+        <article id="answer" class="panel answer" hidden>
+          <header><h2>Answer</h2><span id="answer-meta" class="tag"></span>
+            <span class="spacer"></span>
+            <button id="speak" class="mini">Read aloud</button><button id="copy" class="mini">Copy</button></header>
+          <div id="answer-body" class="md"></div>
+        </article>
+
+        <article id="review" class="panel review" hidden>
+          <header><h2>Asked vs got</h2><span id="review-meta" class="tag"></span></header>
+          <p id="review-summary"></p>
+          <div class="cols">
+            <div><h3 class="ok-t">Delivered</h3><ul id="review-delivered"></ul></div>
+            <div><h3 class="bad-t">Missing</h3><ul id="review-missing"></ul></div>
+          </div>
+        </article>
+
+        <article id="prayer" class="panel prayer" hidden>
+          <header><h2>The team requests a word with Claude</h2></header>
+          <blockquote id="prayer-text"></blockquote>
+          <p class="muted">There is no free Claude API, so you are the messenger. Approve to copy the message and open claude.ai, then paste the reply here.</p>
+          <div class="row"><button id="approve" class="go small">Approve &amp; open Claude</button><span id="approve-note" class="muted"></span></div>
+          <textarea id="prayer-reply" rows="4" placeholder="Paste Claude's reply"></textarea>
+          <div class="row"><button id="deliver" class="mini">Give Claude's word to the team</button></div>
+        </article>
       </div>
-    </section>
-    <aside class="card">
-      <h3>Free quota today <button id="quota-refresh" class="badge" style="margin-left:auto">refresh</button></h3>
-      <div id="quota" class="muted">loading…</div>
-    </aside>
-  </div>
+
+      <aside class="side">
+        <div class="panel feed-panel">
+          <header><h2>Log</h2><span class="spacer"></span><button id="clear-log" class="mini">Clear</button></header>
+          <ol id="feed" class="feed" aria-live="polite"></ol>
+        </div>
+        <div class="panel duty-panel">
+          <header><h2>On duty</h2><span class="spacer"></span><a href="#staff" class="mini link">Leaderboard →</a></header>
+          <div id="duty" class="duty"></div>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- STAFF -->
+  <section class="view" id="view-staff" aria-label="Staff" hidden>
+    <div class="view-head"><h1>Staff</h1><p class="muted">Every model starts at 1000 Elo. After each workflow the reviewer scores every part, and workers on the same job win or lose points against each other. Not showing up costs points; running out of free quota doesn't. Higher Elo gets picked first.</p></div>
+    <div class="ranks" id="ranks"></div>
+    <div class="panel table-panel"><table><thead><tr><th>#</th><th>Rank</th><th>Model</th><th class="num">Elo</th><th class="num">Done</th><th class="num">No-shows</th><th class="num">W–L</th><th class="num">Avg score</th><th class="num">Avg time</th></tr></thead><tbody id="board"></tbody></table></div>
+  </section>
+
+  <!-- ACCOUNTS -->
+  <section class="view" id="view-accounts" aria-label="Accounts" hidden>
+    <div class="view-head"><h1>Accounts</h1>
+      <p class="muted">Press <b>Get key</b>: your browser opens that provider's key page. Sign in (free), create a key, press its Copy button, and Nathan picks it up. Keys stay in this computer's keychain.</p>
+      <p id="first-run" class="banner" hidden>Connect two accounts and Nathan opens the console by itself. Groq and Gemini are good first picks.</p>
+    </div>
+    <div id="accounts" class="accounts"></div>
+  </section>
+
+  <!-- HISTORY -->
+  <section class="view" id="view-history" aria-label="History" hidden>
+    <div class="view-head"><h1>History</h1><p class="muted">What you've asked before. Nathan also uses this as memory: related past answers are quietly added as context. Click one to ask it again.</p></div>
+    <ol id="history" class="history"></ol>
+  </section>
+
+  <!-- SYSTEMS -->
+  <section class="view" id="view-systems" aria-label="Systems" hidden>
+    <div class="view-head"><h1>Systems</h1><p class="muted">Every start, Nathan asks each provider which models it still offers (free) and retires the ones that vanished. The full check below pings every model once, which uses one request each.</p></div>
+    <div class="row"><button id="diag" class="go small">Run full systems check</button><span id="diag-note" class="muted"></span></div>
+    <div id="sys-info" class="sys-info"></div>
+    <div id="diag-units" class="units compact"></div>
+    <pre id="diag-report" class="report" hidden></pre>
+  </section>
 </main>
-<script src="/static/app.js"></script>
+
+<div id="toast" class="toast" role="status" hidden></div>
+<script type="module" src="/static/js/main.js"></script>
 </body>
 </html>

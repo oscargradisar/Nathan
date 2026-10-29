@@ -103,7 +103,8 @@ def _worker_messages(wf: Workflow, task: Subtask) -> list:
 
 
 async def hedged(engine, unit: str, chain: list[str], messages: list, emit: Emit | None,
-                 no_shows: list[str] | None = None, role: str = "worker"):
+                 no_shows: list[str] | None = None, role: str = "worker",
+                 hedge_after: float | None = None):
     """Run one job on the first worker in `chain`. If it hasn't delivered after HEDGE_AFTER_S,
     a backup starts on the same job and whoever finishes first wins (the slow one is cancelled,
     no penalty: slow isn't absent). Failures hand over to the next worker.
@@ -126,10 +127,13 @@ async def hedged(engine, unit: str, chain: list[str], messages: list, emit: Emit
     try:
         while running:
             hedge = len(running) == 1 and nxt < len(chain)
-            done, _ = await asyncio.wait(running, timeout=HEDGE_AFTER_S if hedge else None,
+            wait = hedge_after if hedge_after is not None else HEDGE_AFTER_S
+            done, _ = await asyncio.wait(running, timeout=wait if hedge else None,
                                          return_when=asyncio.FIRST_COMPLETED)
-            if not done:  # slow, not dead: bring in a backup alongside
+            if not done:  # slow, not dead: bring in a backup alongside, the quickest we have
                 slow = next(iter(running.values()))[0]
+                speed = engine.staff.seconds
+                chain[nxt:] = sorted(chain[nxt:], key=lambda r: speed(r) or HEDGE_AFTER_S)
                 await launch({"type": "backup", "for": slow})
                 continue
             for t in done:
@@ -191,6 +195,9 @@ def _team_work(wf: Workflow) -> str:
 async def run_workflow(engine, prompt: str, emit: Emit | None = None) -> Workflow:
     wf = Workflow(prompt)
     await _emit(emit, {"type": "phase", "phase": "planning"})
+    planners = engine.chain(["planner", "reasoning", "long_context"])[:2]
+    await _emit(emit, {"type": "working", "id": "manager", "role": "manager",
+                       "worker": " vs ".join(planners)})
     wf.graph, planner = await plan(engine, prompt)
     wf.assigned = assign(engine, wf.graph)
     await _emit(emit, {"type": "plan", "planner": planner, "synthesis": wf.graph.synthesis,

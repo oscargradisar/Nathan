@@ -137,8 +137,11 @@ def test_quota_endpoint(web):
 def test_pages_and_static(web):
     client, _ = web(responder)
     assert "Nathan" in client.get("/").text
-    assert "Connect" in client.get("/connect").text
-    assert client.get("/static/app.js").status_code == 200
+    for old in ("/connect", "/workflow", "/leaderboard"):  # old addresses open the console
+        assert "view-accounts" in client.get(old).text
+    for js in ("main", "core", "console", "views", "sound", "voice", "quips"):
+        assert client.get(f"/static/js/{js}.js").status_code == 200
+    assert "swarm" in client.get("/api/models").json()["modes"]
     assert "vote" in client.get("/api/models").json()["modes"]
 
 

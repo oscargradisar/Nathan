@@ -12,12 +12,15 @@ from typing import Any
 
 from nathan.client import Client, Message
 from nathan.config import Provider, data_dir, load_providers, workspace_dir
-from nathan.errors import NathanError
+from nathan.errors import NathanError, NoModelAvailable
 from nathan.memory import Memory
 from nathan.patterns import Candidate, fallback, race, vote
 from nathan.quota import QuotaManager
 from nathan.roster import Roster
 from nathan.staff import START, Staff
+
+UNKNOWN_SPEED_S = 8.0  # assumed answer time for a model that hasn't delivered yet
+QUICK_HEDGE_S = 6.0  # quick answers: a backup starts if nothing arrives by then
 
 MODES = ("auto", "single", "race", "vote", "critique", "plan", "agent", "workflow")
 
@@ -69,6 +72,12 @@ class Engine:
                 out.append(ref)
         return out
 
+    def fastest(self, tags: list[str] | None = None) -> list[str]:
+        """Usable models that fit `tags`, quickest measured first (unknown counts as average).
+        For jobs where waiting is the main cost: routing, quick answers."""
+        refs = self.roster.candidates(tags) or self.roster.candidates(None)
+        return sorted(refs, key=lambda r: self.staff.seconds(r) or UNKNOWN_SPEED_S)
+
     def judges(self, exclude: list[str] | None = None) -> list[str]:
         j = [r for r in self.roster.candidates(["judge"]) if r not in (exclude or [])]
         return j + [r for r in self.roster.candidates(["judge"]) if r not in j]
@@ -98,14 +107,18 @@ class Engine:
         on_event = kwargs.pop("on_event", None)  # progress callback (web UI), not for the API
         max_steps = kwargs.pop("max_steps", 8)  # agent step limit
         if mode == "single":
-            chain = self.chain(tags, models)
-            await _emit(on_event, {"type": "step", "id": "answer", "role": "answerer",
-                                   "status": "working", "model": chain[0] if chain else ""})
-            res = await fallback(self.client, chain, messages, **kwargs)
-            await _emit(on_event, {"type": "step", "id": "answer", "role": "answerer",
-                                   "status": "done", "model": res.ref, "text": res.text,
-                                   "seconds": round(res.latency_ms / 1000, 1)})
-            return Answer(res.text, mode, [res.ref])
+            from nathan.workflow import hedged
+
+            chain = list(dict.fromkeys((models or self.fastest(tags or ["fast"])[:3])
+                                       + self.chain(tags)))
+            if kwargs:  # options like max_tokens: plain fallback keeps them
+                res = await fallback(self.client, chain, messages, **kwargs)
+                return Answer(res.text, mode, [res.ref])
+            got = await hedged(self, "answer", chain, messages, on_event, role="answerer",
+                               hedge_after=QUICK_HEDGE_S)
+            if got is None:
+                raise NoModelAvailable("no model could answer")
+            return Answer(got[1].text, mode, [got[0]])
         if mode == "race":
             refs = models or self.roster.pick(tags or ["fast"], min(n, 3))
             for i, ref in enumerate(refs):
