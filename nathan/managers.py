@@ -25,6 +25,9 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+# Background checks must not flash console windows on Windows
+NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+
 TIMEOUT_S = 300.0
 
 
@@ -68,7 +71,8 @@ def _run(args: list[str], stdin: str | None = None, timeout: float = 30,
          env: dict | None = None) -> subprocess.CompletedProcess:
     with tempfile.TemporaryDirectory() as cwd:  # empty folder: no project files leak in
         return subprocess.run(args, input=stdin, capture_output=True, text=True, encoding="utf-8",
-                              errors="replace", timeout=timeout, cwd=cwd, check=False, env=env)
+                              errors="replace", timeout=timeout, cwd=cwd, check=False, env=env,
+                              creationflags=NO_WINDOW)
 
 
 def _gemini_key() -> str | None:
@@ -130,7 +134,7 @@ def install(m: Manager) -> str:
     if not npm:
         raise RuntimeError("Installing needs Node.js first (free, nodejs.org).")
     out = subprocess.run([npm, "install", "-g", m.package], capture_output=True, text=True,
-                         timeout=900, check=False)
+                         timeout=900, check=False, creationflags=NO_WINDOW)
     if out.returncode != 0 or not m.cli():
         raise RuntimeError(out.stderr.strip()[-400:] or f"couldn't install {m.package}")
     return m.cli() or ""

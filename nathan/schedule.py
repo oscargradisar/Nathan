@@ -11,6 +11,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+# Background checks must not flash console windows on Windows
+NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+
 TASK = "Nathan nightly check"
 LABEL = "com.nathan.nightlycheck"
 AT = (3, 30)
@@ -35,7 +38,7 @@ def _plist() -> Path:
 def is_on() -> bool:
     if sys.platform == "win32":
         return subprocess.run(["schtasks", "/Query", "/TN", TASK], capture_output=True,
-                              check=False).returncode == 0
+                              check=False, creationflags=NO_WINDOW).returncode == 0
     if sys.platform == "darwin":
         return _plist().exists()
     return False
@@ -46,7 +49,7 @@ def turn_on() -> None:
     if sys.platform == "win32":
         tr = " ".join(f'"{c}"' if " " in c else c for c in cmd)
         subprocess.run(["schtasks", "/Create", "/F", "/SC", "DAILY", "/ST", f"{AT[0]:02d}:{AT[1]:02d}",
-                        "/TN", TASK, "/TR", tr], capture_output=True, check=True)
+                        "/TN", TASK, "/TR", tr], capture_output=True, check=True, creationflags=NO_WINDOW)
     elif sys.platform == "darwin":
         args = "".join(f"<string>{c}</string>" for c in cmd)
         _plist().parent.mkdir(parents=True, exist_ok=True)
@@ -65,7 +68,7 @@ def turn_on() -> None:
 
 def turn_off() -> None:
     if sys.platform == "win32":
-        subprocess.run(["schtasks", "/Delete", "/F", "/TN", TASK], capture_output=True, check=False)
+        subprocess.run(["schtasks", "/Delete", "/F", "/TN", TASK], capture_output=True, check=False, creationflags=NO_WINDOW)
     elif sys.platform == "darwin" and _plist().exists():
         subprocess.run(["launchctl", "unload", str(_plist())], capture_output=True, check=False)
         _plist().unlink()
