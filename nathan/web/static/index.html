@@ -17,6 +17,11 @@
     <span class="slogan">6 answers.. 1 answer</span>
   </div>
   <div class="chips" id="chips" aria-live="polite"></div>
+  <div class="seg" id="lead" role="radiogroup" aria-label="Lead manager" title="Who manages: reviews workflows, verifies research, final word on reviews, runs Programming">
+    <span>Manager</span>
+    <button type="button" role="radio" data-m="chatgpt" aria-checked="true">ChatGPT</button>
+    <button type="button" role="radio" data-m="claude" aria-checked="false">Claude</button>
+  </div>
   <div class="toggles">
     <button id="t-sound" class="toggle" aria-pressed="true" title="Sound effects">♪ <span>Sound</span></button>
     <button id="t-voice" class="toggle" aria-pressed="false" title="Read answers aloud">◉ <span>Voice</span></button>
@@ -113,7 +118,7 @@
   <!-- CODE -->
   <section class="view" id="view-code" aria-label="Programming" hidden>
     <div class="view-head"><h1>Programming</h1>
-      <p class="muted">Describe what to build. <b id="code-boss">ChatGPT</b> plans the files, free coding models write them in parallel, the manager reviews and fixes them, and the result is saved to your workspace.</p></div>
+      <p class="muted">Describe what to build. <b id="code-boss">Your lead manager</b> plans the files, free coding models write them in parallel, the manager reviews and fixes them, and the result is saved to your workspace.</p></div>
     <form id="code-form" class="cmd" autocomplete="off">
       <label class="sr-only" for="code-prompt">What should the team build?</label>
       <textarea id="code-prompt" rows="3" placeholder="e.g. a Python script that renames my photos by the date they were taken"></textarea>
@@ -151,6 +156,9 @@
   <!-- HISTORY -->
   <section class="view" id="view-history" aria-label="History" hidden>
     <div class="view-head"><h1>History</h1><p class="muted">What you've asked before. Nathan also uses this as memory: related past answers are quietly added as context. Click one to ask it again.</p></div>
+    <h2 class="sub-h">Prayers to Claude</h2>
+    <ol id="prayers" class="history"></ol>
+    <h2 class="sub-h">Questions</h2>
     <ol id="history" class="history"></ol>
   </section>
 

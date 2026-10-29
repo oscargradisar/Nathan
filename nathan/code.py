@@ -130,8 +130,7 @@ async def run_code(engine, task: str, emit: Emit | None = None, team=None, ask=N
 
     ask = ask or managers.ask
     connected = team if team is not None else await managers.connected()
-    order = {"chatgpt": 0, "claude": 1, "gemini": 2}  # ChatGPT runs Programming
-    team = sorted(connected, key=lambda m: order.get(m.id, 9))
+    team = managers.lead_order(connected)  # the lead manager runs Programming
 
     # 1. spec
     await _emit(emit, {"type": "phase", "phase": "planning"})

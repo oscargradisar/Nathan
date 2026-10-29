@@ -126,6 +126,19 @@ export async function renderProjects() {
 }
 
 // ---- history -----------------------------------------------------------------------------
+export async function renderPrayers() {
+  const { prayers } = await api("/api/prayers");
+  const list = $("prayers"); list.textContent = "";
+  if (!prayers.length) list.append(el("li", {}, el("span", { class: "h-q muted" }, "No prayers yet. The team only prays when it's genuinely unsure, which is more self-awareness than most teams.")));
+  for (const p of prayers) {
+    const d = new Date(p.ts * 1000);
+    list.append(el("li", { class: "prayer-item", title: p.prompt ? "Asked during: " + p.prompt : "" },
+      el("time", {}, d.toLocaleDateString(undefined, { month: "short", day: "numeric" }) + " " + d.toTimeString().slice(0, 5)),
+      el("span", { class: "h-q" }, p.text),
+      el("span", { class: "h-mode" + (p.answered ? " ok" : "") }, p.answered ? "answered" : "unanswered")));
+  }
+}
+
 export async function renderHistory(onPick) {
   const items = (await api("/api/history?limit=60")).items;
   const list = $("history"); list.textContent = "";

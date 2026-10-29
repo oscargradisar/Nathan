@@ -90,7 +90,7 @@ async def run_review(engine, emit: Emit | None = None, ask=managers.ask,
     await _emit(emit, {"type": "phase", "phase": "reviewing"})
 
     draft, verdict, by = "", None, ""
-    for m in sorted(team, key=lambda m: -m.rank):  # assistant manager first, the boss last
+    for m in reversed(managers.lead_order(team)):  # others draft first, the lead decides last
         unit = f"mgr:{m.id}"
         await _emit(emit, {"type": "working", "id": unit, "worker": m.name, "role": m.title.lower()})
         try:

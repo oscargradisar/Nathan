@@ -341,7 +341,7 @@ async def run_research(engine, question: str, emit: Emit | None = None,
     used = {g[0] for g in got} | {name for name, _ in premium}
     brief = f"QUESTION: {question}\n\nEVIDENCE:\n{block}\n\nANALYSTS:\n{answers}"
     final, writer = "", ""
-    for boss in sorted(team, key=lambda m: m.rank)[:1]:
+    for boss in managers.lead_order(team)[:1]:
         await _emit(emit, {"type": "working", "id": "verifier", "worker": boss.name, "role": "verifier"})
         try:
             final, writer = await ask(boss, VERIFIER_SYSTEM + "\n\n" + brief), boss.name

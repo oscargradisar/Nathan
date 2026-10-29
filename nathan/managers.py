@@ -189,3 +189,42 @@ async def ask(m: Manager, prompt: str, *, web: bool = False, timeout: float = TI
 async def connected() -> list[Manager]:
     flags = await asyncio.gather(*(asyncio.to_thread(signed_in, m) for m in MANAGERS.values()))
     return [m for m, ok in zip(MANAGERS.values(), flags, strict=True) if ok]
+
+
+# ---- who leads -----------------------------------------------------------------------
+# You pick the lead manager (ChatGPT by default: cheaper on your plan; Claude: sharper).
+# The lead reviews workflows, verifies research, has the final word in performance
+# reviews and runs Programming. If it isn't signed in, the other steps in.
+
+def _settings_file() -> Path:
+    from nathan.config import data_dir
+
+    return data_dir() / "settings.json"
+
+
+def chosen() -> str:
+    try:
+        mid = json.loads(_settings_file().read_text(encoding="utf-8")).get("manager", "chatgpt")
+    except (OSError, ValueError):
+        mid = "chatgpt"
+    return mid if mid in ("chatgpt", "claude") else "chatgpt"
+
+
+def choose(mid: str) -> str:
+    if mid not in ("chatgpt", "claude"):
+        raise ValueError("the lead manager is ChatGPT or Claude")
+    f = _settings_file()
+    try:
+        data = json.loads(f.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        data = {}
+    data["manager"] = mid
+    f.write_text(json.dumps(data), encoding="utf-8")
+    return mid
+
+
+def lead_order(team: list[Manager]) -> list[Manager]:
+    """Signed-in managers, the chosen lead first, then the other, then Gemini."""
+    first = chosen()
+    rank = {first: 0, ("claude" if first == "chatgpt" else "chatgpt"): 1, "gemini": 2}
+    return sorted(team, key=lambda m: rank.get(m.id, 9))

@@ -275,3 +275,10 @@ figure { margin: 0; }
   filter: grayscale(1) contrast(1.2) sepia(.4) hue-rotate(165deg) brightness(.85); }
 .banner-img figcaption { position: absolute; left: 0; right: 0; bottom: 0; padding: 8px 12px; font: 12px var(--mono);
   color: var(--text); background: linear-gradient(transparent, rgba(4,7,12,.92)); }
+
+.seg { display: flex; align-items: center; gap: 0; border: 1px solid var(--line2); border-radius: 9px; overflow: hidden; font: 12px var(--mono); }
+.seg span { padding: 5px 9px; color: var(--muted); border-right: 1px solid var(--line2); }
+.seg button { background: transparent; border: 0; color: var(--dim); padding: 5px 10px; font: inherit; cursor: pointer; }
+.seg button[aria-checked="true"] { color: #001018; background: var(--amber); font-weight: 700; }
+.history li.prayer-item { border-color: rgba(255,181,74,.35); }
+.history li.prayer-item .h-mode.ok { color: var(--ok); }

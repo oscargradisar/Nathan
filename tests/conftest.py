@@ -62,3 +62,13 @@ def memory_keyring(monkeypatch):
     yield backend
     keyring.set_keyring(old)
     keys.clear_cache()
+
+
+@pytest.fixture(autouse=True)
+def no_real_managers(monkeypatch, tmp_path):
+    """Claude/ChatGPT/Gemini CLIs may be signed in on this machine: tests must never call them."""
+    async def nobody():
+        return []
+
+    monkeypatch.setattr("nathan.managers.connected", nobody)
+    monkeypatch.setattr("nathan.managers._settings_file", lambda: tmp_path / "settings.json")

@@ -110,6 +110,8 @@ async def test_review_assistant_drafts_and_boss_decides(make_engine):
         return json.dumps({"summary": "final", "ranking": [{"worker": b, "score": 9, "note": "underrated"},
                                                            {"worker": a, "score": 7}, {"worker": c, "score": 2}]})
 
+    assert managers.chosen() == "chatgpt"  # ChatGPT leads by default
+    managers.choose("claude")  # with Claude as lead, ChatGPT drafts and Claude decides
     r = await run_review(engine, ask=ask, connected=[managers.CLAUDE, managers.CHATGPT])
     assert order == ["chatgpt", "claude"] and r["by"] == "Claude"
     assert r["changes"][letters[b]] > 0 > r["changes"][letters[c]]

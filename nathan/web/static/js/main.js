@@ -2,8 +2,8 @@
 import { $, api, el, store, toast } from "./core.js";
 import { ask, initConsole, log, onRunFinished, setStaff } from "./console.js";
 import { play, setSound, soundOn } from "./sound.js";
-import { initSystemsControls, renderAccounts, renderHistory, renderManagers, renderProjects, renderStaff,
-  renderSystems, runDiagnostics } from "./views.js";
+import { initSystemsControls, renderAccounts, renderHistory, renderManagers, renderPrayers, renderProjects,
+  renderStaff, renderSystems, runDiagnostics } from "./views.js";
 import { setVoice, voiceOn } from "./voice.js";
 import { lightningOn, setLightning, strike } from "./fx.js";
 import { initMorphy } from "./morphy.js";
@@ -22,7 +22,7 @@ function show() {
   if (name === "staff") refreshStaff();
   if (name === "accounts") { renderManagers(); renderAccounts(); }
   if (name === "code") { renderProjects(); codeBoss(); }
-  if (name === "history") renderHistory((q) => ask(q));
+  if (name === "history") { renderPrayers(); renderHistory((q) => ask(q)); }
   if (name === "systems") refreshStatus().then(() => renderSystems(status));
   if (name === "console") setTimeout(() => $("prompt").focus(), 0);
 }
@@ -53,6 +53,7 @@ async function boot() {
   toggle($("t-voice"), voiceOn, setVoice, "Voice");
   toggle($("t-bolt"), lightningOn, (on) => { setLightning(on); if (on) setTimeout(() => strike($("core"), { big: true }), 50); }, "Lightning");
   initMorphy();
+  initLead();
   await refreshStatus().catch(() => null);
   await refreshStaff().catch(() => null);
   initConsole(status ? status.staff_ready : "several");
@@ -100,9 +101,21 @@ async function boot() {
     store.set("seen-tips", true);
   }
 }
+async function initLead() {
+  const paint = (m) => { for (const b of $("lead").querySelectorAll("button")) b.setAttribute("aria-checked", String(b.dataset.m === m)); };
+  const s = await api("/api/settings").catch(() => ({ manager: "chatgpt" }));
+  paint(s.manager);
+  for (const b of $("lead").querySelectorAll("button")) b.onclick = async () => {
+    try { paint((await api("/api/settings", { manager: b.dataset.m })).manager); play("click");
+      toast(`${b.textContent} is managing. ${b.dataset.m === "claude" ? "Sharper, and pricier on your plan." : "Cheaper, still competent."}`); }
+    catch (e) { toast(e.message); }
+  };
+}
+
 async function codeBoss() {
   const { managers } = await api("/api/managers").catch(() => ({ managers: [] }));
-  const order = ["chatgpt", "claude", "gemini"];
+  const lead = (await api("/api/settings").catch(() => ({ manager: "chatgpt" }))).manager;
+  const order = [lead, lead === "chatgpt" ? "claude" : "chatgpt", "gemini"];
   const boss = order.map((id) => managers.find((m) => m.id === id && m.signed_in)).find(Boolean);
   $("code-boss").textContent = boss ? boss.name : "The free team's planner";
   $("code-note").textContent = boss ? `${boss.name} is managing.` : "Connect ChatGPT under Accounts to put it in charge.";

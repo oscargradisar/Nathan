@@ -19,10 +19,11 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
+from nathan import managers
 from nathan.errors import RECOVERABLE, NoModelAvailable
-from nathan.jsonutil import race_json
+from nathan.jsonutil import extract_json, race_json
 from nathan.patterns import fallback
 from nathan.planner import Subtask, TaskGraph, plan
 
@@ -65,7 +66,8 @@ class Workflow:
     final: str = ""
     writer: str = ""
     review: Review | None = None
-    round_one: list[tuple[str, float]] = field(default_factory=list)  # (worker, score) of redone parts
+    round_one: list[tuple[str, float]] = field(default_factory=list)
+    team: list = field(default_factory=list)  # signed-in premium managers  # (worker, score) of redone parts
 
 
 async def _emit(emit: Emit | None, event: dict[str, Any]) -> None:
@@ -199,6 +201,7 @@ def _team_work(wf: Workflow) -> str:
 
 async def run_workflow(engine, prompt: str, emit: Emit | None = None) -> Workflow:
     wf = Workflow(prompt)
+    wf.team = await managers.connected()
     await _emit(emit, {"type": "phase", "phase": "planning"})
     planners = engine.chain(["planner", "reasoning", "long_context"])[:2]
     await _emit(emit, {"type": "working", "id": "manager", "role": "manager",
@@ -250,6 +253,7 @@ async def run_workflow(engine, prompt: str, emit: Emit | None = None) -> Workflo
     changes = engine.staff.rate(score_workers(wf))
     await _emit(emit, {"type": "ratings", "changes": {r: round(d, 1) for r, d in changes.items()}})
     if wf.review.prayer.strip():
+        engine.memory.add("prayer", wf.review.prayer.strip(), {"prompt": prompt[:500]})
         await _emit(emit, {"type": "prayer", "text": wf.review.prayer.strip(),
                            "message": prayer_message(wf)})
     await _emit(emit, {"type": "phase", "phase": "done"})
@@ -257,7 +261,19 @@ async def run_workflow(engine, prompt: str, emit: Emit | None = None) -> Workflo
 
 
 async def _review(engine, wf: Workflow, emit: Emit | None) -> str | None:
-    """Asked-vs-got review. Sets wf.review (None if no reviewer answered); returns the reviewer."""
+    """Asked-vs-got review. Sets wf.review (None if no reviewer answered); returns the reviewer.
+    Your lead manager (ChatGPT or Claude) does it when signed in; else the best free judges."""
+    brief = f"ASKED FOR:\n{wf.prompt}\n\nTEAM WORK:\n{_team_work(wf)}\n\nFINAL ANSWER:\n{wf.final}"
+    for m in managers.lead_order(wf.team)[:1]:
+        await _emit(emit, {"type": "working", "id": "reviewer", "worker": m.name, "role": "reviewer"})
+        try:
+            text = await managers.ask(m, REVIEWER_SYSTEM + "\n\n" + brief)
+            wf.review = Review.model_validate(extract_json(text))
+            await _emit(emit, {"type": "review", "reviewer": m.name, **wf.review.model_dump()})
+            return m.name
+        except (RuntimeError, ValueError, ValidationError) as e:
+            await _emit(emit, {"type": "task_failed", "id": "reviewer", "role": "reviewer", "worker": m.name,
+                               "reason": f"{m.name} couldn't review ({str(e)[:80]}); free judges take over"})
     # judges first, then any reasoning model: a review shouldn't fail because judges are busy
     judges = [r for r in dict.fromkeys(engine.judges() + engine.chain(["reasoning"])) if r != wf.writer]
     # two reviewers race; within the good judges, measured-fast ones go first
@@ -310,5 +326,6 @@ async def answer_prayer(engine, wf: Workflow, reply: str, emit: Emit | None = No
                                     f"{reply}\n\nRewrite the final answer, taking Claude's reply "
                                     "into account."}])
     wf.final, wf.writer = res.text, res.ref
+    engine.memory.add("blessing", reply[:4000], {"prompt": wf.prompt[:500]})
     await _emit(emit, {"type": "blessed", "text": wf.final, "writer": wf.writer})
     return wf.final

@@ -48,6 +48,10 @@ class ManualIn(BaseModel):
     text: str
 
 
+class SettingsIn(BaseModel):
+    manager: str
+
+
 class ScheduleIn(BaseModel):
     on: bool
 
@@ -228,6 +232,29 @@ def create_app(engine, hub: Hub | None = None, self_check: bool = False) -> Fast
         else:
             subprocess.run(["open" if sys.platform == "darwin" else "xdg-open", str(folder)], check=False)
         return {"path": str(folder)}
+
+    @app.get("/api/settings")
+    def settings() -> dict:
+        from nathan import managers
+
+        return {"manager": managers.chosen()}
+
+    @app.post("/api/settings")
+    def set_settings(body: SettingsIn) -> dict:
+        from nathan import managers
+
+        try:
+            return {"manager": managers.choose(body.manager)}
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from e
+
+    @app.get("/api/prayers")
+    async def prayers() -> dict:
+        rows = engine.memory.recent(400)
+        answered = {e.meta.get("prompt") for e in rows if e.kind == "blessing"}
+        return {"prayers": [{"ts": e.ts, "text": e.content, "prompt": e.meta.get("prompt", ""),
+                             "answered": e.meta.get("prompt") in answered}
+                            for e in rows if e.kind == "prayer"]}
 
     @app.get("/api/history")
     async def history(limit: int = 20) -> dict:
