@@ -181,6 +181,7 @@ function handle(ev) {
     }
     case "lanes":
       ev.lanes.forEach((l) => unit("lane" + l.id, { role: "voter " + (l.id + 1), model: l.model, status: "working", start: Date.now(), text: "" }));
+      $("core-big").textContent = ev.lanes.length > 5 ? "SWARM" : "COUNCIL";
       $("core-small").textContent = `${ev.lanes.length} models answering`;
       break;
     case "delta": { const u = units.get("lane" + ev.lane); if (u) { u.text = (u.text || "") + ev.text; paintText(u); } break; }
@@ -196,7 +197,11 @@ function handle(ev) {
     case "judge_delta": { const u = units.get("judge"); if (u) { u.text += ev.text; paintText(u); } break; }
     case "judge_failed": { const u = unit("judge", {}); addLog(u, `${short(ev.model)} couldn't judge (${ev.reason})`); break; }
     case "manual_added": unit("manual" + units.size, { role: "pasted", model: ev.model, status: "done", text: ev.text }); break;
-    case "final": case "blessed": answer(ev); break;
+    case "final": case "blessed": {
+      const j = units.get("judge");
+      if (j && j.status === "working") unit("judge", { status: "done", state: "merged", model: ev.judge || j.model });
+      answer(ev); break;
+    }
     case "error": play("error"); say_(errorLine(plain(ev.message))); toast(plain(ev.message), 5000); break;
     case "done": busy(false); onFinish(); break;
   }

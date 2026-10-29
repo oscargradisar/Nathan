@@ -1,74 +1,34 @@
 # Nathan
 
-Many free AI models working in parallel, one answer out. Zero operating cost.
+**6 answers.. 1 answer.** Nathan runs a small company of free AI models. You ask once; a manager splits the job, a team of models works on the parts at the same time, a writer joins it up and a reviewer tells you what you asked for versus what you got. Operating cost: $0.
 
-## Get started (about 20 minutes)
+## Get it
 
-**1. Install the tools** (once per computer)
+Download the installer for your computer from the [latest release](https://github.com/oscargradisar/Nathan/releases/latest) and follow [docs/INSTALL.md](docs/INSTALL.md) (5 steps, no terminal).
 
-- Python 3.12+: https://www.python.org/downloads/
-- git: https://git-scm.com/downloads
-- uv: https://docs.astral.sh/uv/getting-started/installation/
-- Claude Code: https://docs.claude.com/en/docs/claude-code
+## What it does
 
-**2. Get free API keys** (no credit card — don't add one)
+- **One console.** Type what you need and press Enter. *Auto* picks how to handle it: one fast model for small things, the whole team for big ones. Or choose: Quick, Workflow, Council (5 models + a judge), Swarm (up to 12 at once), Critique (draft → review → rewrite) or Agent (files, Python, web pages, and SQL on your CSV/SQLite data in the workspace folder).
+- **You see who's working on what.** A live card for every model on the job, with timers, hand-offs and scores, and a log with dry commentary.
+- **It squeezes the free tiers.** If a worker is slow, a backup starts on the same part and the first to finish wins. Parts the reviewer scores below 5/10 are redone by someone better. Planners and reviewers race each other. Repeated questions come from a cache and cost nothing.
+- **It manages itself.** Every model has an Elo rating (Iron to Champion) earned from review scores; better-rated models get picked first, and quick models handle the jobs where waiting is the cost. At every start Nathan asks each provider which models still exist and retires the ones that vanished. An optional nightly check pings every model.
+- **Prayers to Claude.** When the team is unsure, it drafts a question for Claude. You approve it, paste it into claude.ai (there's no free Claude API), paste the reply back, and the answer is revised.
+- **Private.** Keys live in your computer's keychain and only go to their provider. Sound effects and voice are synthesized in the browser, so nothing is sent anywhere.
 
-| Provider | Get a key |
-| --- | --- |
-| Groq | https://console.groq.com/keys |
-| Google AI Studio (Gemini) | https://aistudio.google.com/apikey |
-| Cerebras | https://cloud.cerebras.ai |
-| OpenRouter | https://openrouter.ai/keys |
-| Mistral | https://console.mistral.ai/api-keys |
+Free providers: Groq, Google AI Studio (Gemini), Cerebras, OpenRouter, Mistral, NVIDIA, SambaNova, Cloudflare Workers AI, plus two gateways that need no account (Kilo Code, LLM7). Connect at least two in the app; no credit card, ever.
 
-**3. Open the project in Claude Code**
+## For developers
 
 ```bash
-cd nathan
-claude
+uv sync                       # install dependencies (Python 3.12+)
+uv run pytest                 # tests: no network, no quota
+uv run python -m nathan.desktop   # the desktop app
+uv run nathan web             # the console in your browser
+uv run nathan ask "..."       # from the terminal; --mode auto|single|race|vote|critique|workflow|agent
+uv run nathan health          # retire vanished models, ping the rest
+uv run python packaging/build.py  # build the app folder (installers: packaging/, .github/workflows/release.yml)
 ```
 
-Then just paste each key in, e.g. `/add-key groq gsk_...` — Claude puts it in `.env` and tests it.
-
-**4. Full auto: let Claude build the whole thing**
-
-```bash
-./autopilot.sh              # watch it work; type anytime to steer
-./autopilot.sh --headless   # unattended in the background → tail -f autopilot.log
-```
-
-Autopilot runs with all approvals skipped, builds tier after tier, tests and commits as it goes, and only stops when it needs a key from you or quota runs out. It leaves a handoff note under "Autopilot log" in `docs/ROADMAP.md`. Inside a normal session, `/autopilot` does the same.
-
-**Or step through it yourself**
-
-| Command | What it does |
-| --- | --- |
-| `/status` | Provider health + where you are on the roadmap |
-| `/next-tier` | Claude builds the next tier end to end, runs its gate, commits |
-| `/add-key <provider> <key>` | Save a key and test it |
-| `/refresh-models` | Check which free models still exist and update the config |
-
-Progress is tracked in `docs/ROADMAP.md`. Claude's standing instructions are in `CLAUDE.md`.
-
-## Manual commands
-
-```bash
-uv sync                    # install dependencies
-uv run python ping.py      # test every provider
-uv run pytest              # tests (no network, no quota used)
-
-uv run nathan connect all  # connect AI accounts (keys go to your OS keychain)
-uv run nathan ask "..."    # auto-routed answer; --mode single|race|vote|critique|plan|agent
-uv run nathan web          # control room in your browser (live lanes, quota, manual lane)
-uv run nathan quota        # free-tier usage in the last 24h
-uv run nathan remember "…" / nathan recall "…"   # long-term memory
-```
-
-## Pushing to GitHub
-
-```bash
-git init && git add . && git commit -m "Nathan Tier 0 scaffold"
-gh repo create nathan --private --source . --push
-```
-
-`.env` is git-ignored, so your keys stay on your computer.
+- Models, limits and tags live only in `providers.yaml`; code never names a model.
+- How it fits together: `client.py` (one client for every provider) → `quota.py` + `roster.py` + `staff.py` (who can work, who's good, who's fast) → `workflow.py` / `patterns/` → `web/` (FastAPI + one-page console in `web/static/`).
+- Build rules and history: `CLAUDE.md`, `docs/ROADMAP.md`. Push a `v*` tag to build and publish installers for macOS, Windows x64 and Windows ARM64.

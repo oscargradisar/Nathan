@@ -45,6 +45,7 @@ class Engine:
             providers = client.providers
         self.providers = providers if providers is not None else load_providers()
         self.data = data or data_dir()
+        self.data.mkdir(parents=True, exist_ok=True)
         self.quota = quota if quota is not None else QuotaManager(
             self.providers, self.data / "quota.sqlite")
         if client is None:

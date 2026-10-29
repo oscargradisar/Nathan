@@ -74,8 +74,19 @@ function inline(s) {
     .replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>")
     .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
 }
+// Models love LaTeX; turn the common bits into plain symbols instead of showing backslashes.
+const TEX = { times: "×", cdot: "·", le: "≤", ge: "≥", ne: "≠", approx: "≈", pm: "±", div: "÷",
+  infty: "∞", rightarrow: "→", to: "→", leftarrow: "←", sqrt: "√", pi: "π", alpha: "α", beta: "β", theta: "θ" };
+function untex(s) {
+  return s
+    .replace(/\$\$([^$]+)\$\$|\\\[([\s\S]*?)\\\]|\\\(([\s\S]*?)\\\)/g, (_, a, b, c) => a ?? b ?? c)
+    .replace(/\\(?:mathbf|textbf|text|mathrm)\{([^}]*)\}/g, "$1")
+    .replace(/\\frac\{([^}]*)\}\{([^}]*)\}/g, "($1)/($2)")
+    .replace(/\\([a-zA-Z]+)/g, (m, w) => TEX[w] ?? m);
+}
+
 export function md(src) {
-  const lines = esc(String(src || "")).split("\n");
+  const lines = esc(untex(String(src || ""))).split("\n");
   const out = [];
   let list = null, code = null, para = [], table = [];
   const flush = () => { if (para.length) { out.push(`<p>${inline(para.join(" "))}</p>`); para = []; } };
