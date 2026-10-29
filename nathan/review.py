@@ -32,6 +32,8 @@ Reply with ONLY JSON:
 {{"summary": "2-3 sentences about the team",
   "ranking": [{{"worker": "A", "score": 8, "note": "one sentence"}}]}}
 Scores are 1-10. Rank best first. Include every worker.
+Note: each TASK is shown as a short excerpt, so evidence the workers were given may be cut off.
+Don't penalise citations to sources you can't see; judge the answer itself.
 
 WORK SAMPLES:
 {samples}"""

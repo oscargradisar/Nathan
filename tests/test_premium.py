@@ -52,7 +52,7 @@ async def test_research_with_a_premium_manager_verifying(make_engine):
     engine = make_engine(responder)
     asked = []
 
-    async def ask(m, prompt, web=False):
+    async def ask(m, prompt, web=False, timeout=None):
         asked.append((m.id, web))
         return "Verified: about 295,000 [1]. Confidence: high" if "verifier" in prompt else "Gemini: 295k (web)"
 
@@ -74,7 +74,7 @@ async def test_code_mode_chatgpt_manages_and_files_are_saved(make_engine, tmp_pa
     review = "### hello.py\n```python\nprint('hello')\n```\n\n## Review\nFixed the greeting."
     calls = []
 
-    async def ask(m, prompt, web=False):
+    async def ask(m, prompt, web=False, timeout=None):
         calls.append(m.id)
         return json.dumps(spec) if "Plan the smallest" in prompt else review
 
@@ -100,7 +100,7 @@ async def test_review_assistant_drafts_and_boss_decides(make_engine):
     a, b, c = list(letters)
     order = []
 
-    async def ask(m, prompt, web=False):
+    async def ask(m, prompt, web=False, timeout=None):
         order.append(m.id)
         assert "WORKER" in prompt and "alpha/a-big" not in prompt  # blind review
         if m.id == "chatgpt":

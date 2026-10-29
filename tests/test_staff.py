@@ -34,3 +34,9 @@ def test_priority_weighs_speed_and_ghosts():
     s.record("ghost/m", ok=False)           # never delivered
     assert s.priority("quick/m") > s.priority("slow/m") > s.priority("ghost/m")
     assert s.priority("new/m") == START  # unknown models get a fair start
+
+
+def test_big_jobs_do_not_swing_ratings_wildly():
+    s = Staff()
+    six = s.rate({f"m{i}/x": 10 - i for i in range(6)})
+    assert max(abs(d) for d in six.values()) < 60

@@ -38,6 +38,7 @@ UA = {"user-agent": "Nathan/1.0 (https://github.com/oscargradisar/Nathan) httpx2
 SNIPPET = 1800        # characters of text kept per source item
 MAX_EVIDENCE = 16     # items handed to the analysts
 ANALYSTS = 4
+PREMIUM_TIMEOUT_S = 180.0  # a premium researcher that takes longer is left out
 SOURCE_BUDGET_S = 15.0  # a source that takes longer keeps what it found so far
 
 SCOUT_SYSTEM = """You plan web research. Turn the question into 2-4 short search queries
@@ -229,7 +230,7 @@ async def gather_evidence(queries: list[str], emit: Emit | None = None,
         await _emit(emit, {"type": "delivered" if items else "task_failed", "id": "src:" + name,
                            "worker": name, "role": "source", "seconds": None,
                            "text": "\n".join(f"• {t}" for t, _, _ in items[:6]) or "nothing found",
-                           "reason": "nothing found"})
+                           **({} if items else {"reason": "nothing found"})})
 
     try:
         await asyncio.gather(*(one(n) for n in SOURCES))
@@ -277,7 +278,7 @@ async def _premium(m, question: str, emit: Emit | None, ask) -> tuple[str, str] 
     unit = f"premium:{m.id}"
     await _emit(emit, {"type": "working", "id": unit, "worker": m.name, "role": "premium researcher"})
     try:
-        text = await ask(m, PREMIUM_BRIEF.format(q=question), web=True)
+        text = await ask(m, PREMIUM_BRIEF.format(q=question), web=True, timeout=PREMIUM_TIMEOUT_S)
     except RuntimeError as e:
         await _emit(emit, {"type": "task_failed", "id": unit, "worker": m.name,
                            "role": "premium researcher", "reason": str(e)})

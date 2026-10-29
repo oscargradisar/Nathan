@@ -117,6 +117,9 @@ class Staff:
             self._ensure(ref)
         before = {ref: self.elo(ref) for ref in scores}
         delta = dict.fromkeys(scores, 0.0)
+        # Big jobs mean many matches each: scale so a job moves ratings about as much as a
+        # three-worker one, instead of swinging them by 100+ points
+        k = k * 2 / max(2, len(scores) - 1)
         for a, b in itertools.combinations(scores, 2):
             if scores[a] == scores[b]:
                 result = 0.5
