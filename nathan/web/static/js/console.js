@@ -3,6 +3,7 @@ import { $, api, clock, el, follow, md, plain, provider, short, store, toast } f
 import { boot, errorLine, finalLine, quip, startLine } from "./quips.js";
 import { play } from "./sound.js";
 import { canListen, listen, say, stop as stopSpeech } from "./voice.js";
+import { doubleStrike, strike } from "./fx.js";
 
 export const MODES = [
   { id: "auto", label: "Auto", help: "Nathan decides: a quick model for small things, the whole company for big ones." },
@@ -94,6 +95,7 @@ async function start() {
   reset();
   busy(true, "ROUTING", mode === "auto" ? "deciding how to handle this" : (MODES.find((m) => m.id === mode)?.label || { code: "programming", review: "performance review" }[mode] || mode).toLowerCase());
   play("start"); say_(startLine());
+  strike($("core"), { big: true });
   try {
     run = await api("/api/runs", { prompt, mode, n: 5 });
   } catch (e) {
@@ -161,7 +163,7 @@ function handle(ev) {
       const u = unit(ev.id, {});
       u.backups = (u.backups || []).concat(ev.worker);
       addLog(u, `backup ${short(ev.worker)} joins (${short(ev.for)} is slow)`);
-      paint(u); play("backup"); break;
+      paint(u); play("backup"); strike(u.els.card); break;
     }
     case "reassigned":
       if (ev.role === "patient") break;
@@ -178,7 +180,10 @@ function handle(ev) {
       if (ev.role === "patient") break;
       unit(ev.id, { status: "failed", state: ev.reason || "nobody could do it" }); play("fail"); break;
     case "redo":
-      for (const id of ev.ids) { const u = unit(id, { status: "queued", state: `redo (scored ${ev.scores[id]}/10)` }); addLog(u, "reviewer sent it back"); }
+      for (const id of ev.ids) {
+        const u = unit(id, { status: "queued", state: `redo (scored ${ev.scores[id]}/10)` });
+        addLog(u, "reviewer sent it back"); strike(u.els.card);
+      }
       play("backup"); break;
     case "review": review(ev); break;
     case "ratings":
@@ -249,6 +254,7 @@ function answer(ev) {
   $("answer-meta").textContent = (ev.type === "blessed" ? "revised with Claude's word · " : "")
     + (by ? "by " + short(by) : (ev.models || []).map(short).join(", ") || "") + (k > 1 ? ` · ${k} models` : "");
   if (ev.type === "final") { say_(finalLine(k || 1)); play("final"); }
+  requestAnimationFrame(() => doubleStrike($("answer")));
   say(ev.text);
 }
 

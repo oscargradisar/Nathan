@@ -249,3 +249,29 @@ td .sub { color: var(--dim); font: 11.5px var(--mono); }
 .sources .src { font: 11px var(--mono); color: var(--dim); margin-left: 6px; }
 .saved { border-color: var(--ok); }
 .td-note { white-space: normal !important; max-width: 340px; color: var(--muted); font-size: 12.5px; }
+
+/* lightning */
+.fx { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 55; }
+body.flash::after { content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 54;
+  background: radial-gradient(circle at 50% 20%, rgba(190,240,255,.28), rgba(63,211,255,.06) 60%, transparent);
+  animation: flash .5s ease-out forwards; }
+@keyframes flash { 0% { opacity: 0; } 8% { opacity: 1; } 18% { opacity: .3; } 26% { opacity: .9; } 100% { opacity: 0; } }
+
+/* Paul Morphy */
+.holo { position: absolute; left: 50%; top: 50%; width: 92px; height: 92px; transform: translate(-50%, -50%);
+  border-radius: 50%; object-fit: cover; object-position: 50% 18%; opacity: .32; pointer-events: none;
+  filter: grayscale(1) contrast(1.15) brightness(1.1) sepia(1) hue-rotate(155deg) saturate(2.4);
+  mask-image: radial-gradient(circle, #000 55%, transparent 72%); transition: opacity .8s; }
+body.busy .holo { opacity: 0; }
+.holo.swap { opacity: 0 !important; }
+.patron { padding-bottom: 10px; }
+.patron img { width: 100%; height: 190px; object-fit: cover; object-position: 50% 20%; border-radius: 8px; display: block;
+  filter: grayscale(1) contrast(1.1) sepia(.35) hue-rotate(160deg); border: 1px solid var(--line2); transition: opacity .6s; }
+.patron figcaption { font-size: 12.5px; color: var(--muted); margin-top: 6px; line-height: 1.45; }
+.patron figcaption b { color: var(--text); }
+figure { margin: 0; }
+.banner-img { position: relative; max-width: 980px; margin: 0 0 14px; border: 1px solid var(--line2); border-radius: var(--r); overflow: hidden; }
+.banner-img img { display: block; width: 100%; height: 170px; object-fit: cover; object-position: 50% 45%;
+  filter: grayscale(1) contrast(1.2) sepia(.4) hue-rotate(165deg) brightness(.85); }
+.banner-img figcaption { position: absolute; left: 0; right: 0; bottom: 0; padding: 8px 12px; font: 12px var(--mono);
+  color: var(--text); background: linear-gradient(transparent, rgba(4,7,12,.92)); }

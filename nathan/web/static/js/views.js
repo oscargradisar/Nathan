@@ -16,7 +16,8 @@ export function renderStaff(staff) {
       el("td", {}, s.place ?? "–"),
       el("td", {}, el("span", { class: "rank rank-" + s.rank.toLowerCase() }, s.rank)),
       el("td", {}, short(s.ref), el("span", { class: "sub" }, ` · ${provider(s.ref)}${s.working ? " · working now" : ""}`)),
-      el("td", { class: "num" }, s.elo), el("td", { class: "num" }, s.done), el("td", { class: "num" }, s.no_shows),
+      el("td", { class: "num" }, s.elo), el("td", { class: "num" }, s.priority ?? s.elo),
+      el("td", { class: "num" }, s.done), el("td", { class: "num" }, s.no_shows),
       el("td", { class: "num" }, `${s.wins}–${s.losses}`), el("td", { class: "num" }, s.avg_score ?? "–"),
       el("td", { class: "num" }, s.avg_seconds != null ? s.avg_seconds + "s" : "–"),
       el("td", { class: "td-note" }, s.verdict ? `${s.verdict.by}: ${s.verdict.score}/10 · ${s.verdict.note}` : "")));

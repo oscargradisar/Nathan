@@ -20,6 +20,7 @@
   <div class="toggles">
     <button id="t-sound" class="toggle" aria-pressed="true" title="Sound effects">♪ <span>Sound</span></button>
     <button id="t-voice" class="toggle" aria-pressed="false" title="Read answers aloud">◉ <span>Voice</span></button>
+    <button id="t-bolt" class="toggle" aria-pressed="true" title="Lightning effects">⚡ <span>Lightning</span></button>
   </div>
 </header>
 
@@ -38,6 +39,7 @@
     <div class="console-grid">
       <div class="stage">
         <div class="core-wrap">
+          <img class="holo" id="holo" src="/static/img/morphy-portrait.jpg" alt="" aria-hidden="true">
           <svg class="core" id="core" viewBox="0 0 200 200" aria-hidden="true">
             <circle class="ring r1" cx="100" cy="100" r="92" />
             <circle class="ring r2" cx="100" cy="100" r="78" />
@@ -95,6 +97,11 @@
           <header><h2>Log</h2><span class="spacer"></span><button id="clear-log" class="mini">Clear</button></header>
           <ol id="feed" class="feed" aria-live="polite"></ol>
         </div>
+        <figure class="panel patron" id="patron">
+          <header><h2>Patron</h2><span class="spacer"></span><span class="tag">1837–1884</span></header>
+          <img id="patron-img" src="/static/img/morphy-daguerreotype.jpg" alt="Paul Morphy, daguerreotype, about 1858">
+          <figcaption><b>Paul Morphy</b> · <span id="patron-line">beat the best players in Europe at 21, then retired.</span></figcaption>
+        </figure>
         <div class="panel duty-panel">
           <header><h2>On duty</h2><span class="spacer"></span><a href="#staff" class="mini link">Leaderboard →</a></header>
           <div id="duty" class="duty"></div>
@@ -118,10 +125,14 @@
 
   <!-- STAFF -->
   <section class="view" id="view-staff" aria-label="Staff" hidden>
+    <figure class="banner-img">
+      <img src="/static/img/morphy-blindfold.jpg" alt="Paul Morphy playing eight games of chess blindfolded at the Café de la Régence, Paris">
+      <figcaption>Paul Morphy plays eight games at once without seeing the boards, Paris, 1858. Elo is a chess rating; he would have broken it.</figcaption>
+    </figure>
     <div class="view-head"><h1>Staff</h1><p class="muted">Every model starts at 1000 Elo. After each workflow the reviewer scores every part, and workers on the same job win or lose points against each other. Not showing up costs points; running out of free quota doesn't. Higher Elo gets picked first.</p></div>
     <div class="row"><button id="review-btn" class="go small">Performance review</button><span id="review-note" class="muted">Your managers judge recent work, blind. ChatGPT drafts, Claude decides; it counts double.</span></div>
     <div class="ranks" id="ranks"></div>
-    <div class="panel table-panel"><table><thead><tr><th>#</th><th>Rank</th><th>Model</th><th class="num">Elo</th><th class="num">Done</th><th class="num">No-shows</th><th class="num">W–L</th><th class="num">Avg score</th><th class="num">Avg time</th><th>Manager's note</th></tr></thead><tbody id="board"></tbody></table></div>
+    <div class="panel table-panel"><table><thead><tr><th>#</th><th>Rank</th><th>Model</th><th class="num">Elo</th><th class="num" title="Elo minus costs for being slow or not showing up: who gets picked first">Pick score</th><th class="num">Done</th><th class="num">No-shows</th><th class="num">W–L</th><th class="num">Avg score</th><th class="num">Avg time</th><th>Manager's note</th></tr></thead><tbody id="board"></tbody></table></div>
   </section>
 
   <!-- ACCOUNTS -->

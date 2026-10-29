@@ -32,7 +32,22 @@ function tone(freq, start, dur, { type = "sine", vol = 1, to = null } = {}) {
   o.start(t); o.stop(t + dur + 0.02);
 }
 
+// A thunder crack: a short burst of noise, low-passed so it rumbles instead of hissing.
+function thunder() {
+  const a = audio();
+  if (!a) return;
+  const len = a.sampleRate * 1.4, buf = a.createBuffer(1, len, a.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.2);
+  const src = a.createBufferSource(), lp = a.createBiquadFilter(), g = a.createGain();
+  src.buffer = buf; lp.type = "lowpass"; lp.frequency.setValueAtTime(1800, a.currentTime);
+  lp.frequency.exponentialRampToValueAtTime(140, a.currentTime + 1.2);
+  g.gain.setValueAtTime(VOLUME * 2.2, a.currentTime);
+  src.connect(lp).connect(g).connect(a.destination);
+  src.start();
+}
+
 const SOUNDS = {
+  thunder,
   click: () => tone(1800, 0, 0.03, { type: "square", vol: 0.25 }),
   start: () => { tone(320, 0, 0.18, { type: "sawtooth", vol: 0.35, to: 960 }); tone(1280, 0.16, 0.08, { vol: 0.5 }); },
   route: () => { tone(660, 0, 0.06, { type: "triangle" }); tone(990, 0.07, 0.06, { type: "triangle" }); },

@@ -5,6 +5,8 @@ import { play, setSound, soundOn } from "./sound.js";
 import { initSystemsControls, renderAccounts, renderHistory, renderManagers, renderProjects, renderStaff,
   renderSystems, runDiagnostics } from "./views.js";
 import { setVoice, voiceOn } from "./voice.js";
+import { lightningOn, setLightning, strike } from "./fx.js";
+import { initMorphy } from "./morphy.js";
 
 const VIEWS = ["console", "code", "staff", "accounts", "history", "systems"];
 let status = null;
@@ -49,6 +51,8 @@ function toggle(btn, get, set, name) {
 async function boot() {
   toggle($("t-sound"), soundOn, setSound, "Sound");
   toggle($("t-voice"), voiceOn, setVoice, "Voice");
+  toggle($("t-bolt"), lightningOn, (on) => { setLightning(on); if (on) setTimeout(() => strike($("core"), { big: true }), 50); }, "Lightning");
+  initMorphy();
   await refreshStatus().catch(() => null);
   await refreshStaff().catch(() => null);
   initConsole(status ? status.staff_ready : "several");

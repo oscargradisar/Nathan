@@ -139,9 +139,11 @@ def test_pages_and_static(web):
     assert "Nathan" in client.get("/").text
     for old in ("/connect", "/workflow", "/leaderboard"):  # old addresses open the console
         assert "view-accounts" in client.get(old).text
-    for js in ("main", "core", "console", "views", "sound", "voice", "quips"):
+    for js in ("main", "core", "console", "views", "sound", "voice", "quips", "fx", "morphy"):
         assert client.get(f"/static/js/{js}.js").status_code == 200
     assert "swarm" in client.get("/api/models").json()["modes"]
+    for img in ("morphy-portrait", "morphy-daguerreotype", "morphy-1859", "morphy-blindfold"):
+        assert client.get(f"/static/img/{img}.jpg").status_code == 200
     assert "vote" in client.get("/api/models").json()["modes"]
 
 

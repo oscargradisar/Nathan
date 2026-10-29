@@ -2,6 +2,14 @@
 
 ## Autopilot log
 
+**2026-10-29 (afternoon): Nathan 1.1: research, premium managers, programming**
+- **Slow bots fixed:** picks now use a *pick score* (Elo − 3 per second of average answer time beyond 10s − 400 for no-shows). Gemma 26B (36.6s a job, top Elo) was everyone's first pick. The systems check feeds real speeds in.
+- **Mistral removed** (its "free" plan asks for a card).
+- **Research mode:** scout → 7 free sources (Wikipedia full-article passages, Marginalia web, DuckDuckGo, Stack Overflow, OpenAlex, arXiv, Hacker News) → analysts with citations → verifier. Live: the Opera Game question came back correct with Wikipedia citations. Wikimedia had been rejecting the User-Agent; fixed.
+- **Premium managers** via official CLIs, all installed on this laptop: Claude Code (`claude`), Codex (`codex`, ChatGPT plan), Gemini CLI (`gemini`). **None are signed in yet: that's yours to do** (Accounts → Your premium plans → Sign in). Untested live until then; mocked tests cover the flows.
+- **Performance review** (Staff): blind samples from the work log; ChatGPT drafts, Claude decides, verdicts count double. **Programming** (Code section): ChatGPT plans, free coders write, ChatGPT reviews, files saved under the workspace's `code/` folder.
+- Lightning effects and Paul Morphy (public-domain photographs, credits in `nathan/web/static/img/CREDITS.json`).
+
 **2026-10-29: Nathan 1.0 (overnight run on the owner's Windows ARM64 laptop, with real keys)**
 
 **How to open it:** double-click **Nathan** on the Desktop or in the Start menu. It opens on the console. First run (no accounts) opens on Accounts and moves to the console after two connect.
