@@ -85,7 +85,7 @@ def assign(engine, graph: TaskGraph) -> dict[str, str]:
             fits = engine.roster.candidates(task.tags or None)[:12] or engine.roster.candidates(None)
             if not fits:
                 raise NoModelAvailable("no workers available: connect a provider first")
-            fits.sort(key=lambda r: -engine.staff.elo(r))
+            fits.sort(key=lambda r: -engine.staff.priority(r))
             free = [r for r in fits if r not in busy]
             other_provider = [r for r in free if r.split("/")[0] not in {b.split("/")[0] for b in busy}]
             out[task.id] = (other_provider or free or fits)[0]
@@ -235,7 +235,7 @@ async def run_workflow(engine, prompt: str, emit: Emit | None = None) -> Workflo
             if before:  # the round-one worker keeps its low score for Elo
                 wf.round_one.append((before, first_scores[t.id]))
             wf.assigned[t.id] = next((r for r in sorted(engine.roster.candidates(t.tags or None)[:12],
-                                                        key=lambda r: -engine.staff.elo(r))
+                                                        key=lambda r: -engine.staff.priority(r))
                                       if r != before), before or "")
         await asyncio.gather(*(_do_task(engine, wf, t, emit, avoid=(wf.worker.get(t.id, ""),))
                                for t in weak))

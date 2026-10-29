@@ -15,7 +15,7 @@ Download the installer for your computer from the [latest release](https://githu
 - **Prayers to Claude.** When the team is unsure, it drafts a question for Claude. You approve it, paste it into claude.ai (there's no free Claude API), paste the reply back, and the answer is revised.
 - **Private.** Keys live in your computer's keychain and only go to their provider. Sound effects and voice are synthesized in the browser, so nothing is sent anywhere.
 
-Free providers: Groq, Google AI Studio (Gemini), Cerebras, OpenRouter, Mistral, NVIDIA, SambaNova, Cloudflare Workers AI, plus two gateways that need no account (Kilo Code, LLM7). Connect at least two in the app; no credit card, ever.
+Free providers: Groq, Google AI Studio (Gemini), Cerebras, OpenRouter, NVIDIA, SambaNova, Cloudflare Workers AI, plus two gateways that need no account (Kilo Code, LLM7). Connect at least two in the app; no credit card, ever.
 
 ## For developers
 

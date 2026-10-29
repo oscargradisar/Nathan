@@ -15,6 +15,9 @@ from pathlib import Path
 
 START = 1000.0
 K = 24.0  # how far one match moves a rating
+SLOW_AFTER_S = 10.0  # average answer times beyond this cost priority...
+SLOW_COST = 3.0      # ...this many Elo points per extra second
+GHOST_COST = 400.0   # models that don't deliver go to the back of the line
 RANKS = [(1400, "Champion"), (1300, "Diamond"), (1200, "Platinum"), (1100, "Gold"),
          (1000, "Silver"), (900, "Bronze"), (float("-inf"), "Iron")]
 
@@ -47,6 +50,21 @@ class Staff:
     def elo(self, ref: str) -> float:
         row = self.db.execute("SELECT elo FROM staff WHERE ref = ?", (ref,)).fetchone()
         return row[0] if row else START
+
+    def priority(self, ref: str) -> float:
+        """Who gets picked first: Elo, minus a cost for being slow or for not showing up.
+        Quality alone made the slowest good model (36s a job) everyone's first pick."""
+        row = self.db.execute("SELECT elo, done, no_shows, ms_sum FROM staff WHERE ref = ?",
+                              (ref,)).fetchone()
+        if row is None:
+            return START
+        elo, done, no_shows, ms_sum = row
+        cost = 0.0
+        if done:
+            cost += SLOW_COST * max(0.0, ms_sum / done / 1000 - SLOW_AFTER_S)
+        if no_shows and (done == 0 or (no_shows >= 3 and no_shows > done)):
+            cost += GHOST_COST  # never or rarely delivers: last resort only
+        return elo - cost
 
     def seconds(self, ref: str) -> float | None:
         """Average answer time in seconds, or None if this model hasn't delivered yet."""
@@ -92,5 +110,6 @@ class Staff:
                         "jobs": jobs, "done": done, "no_shows": no_shows, "wins": wins,
                         "losses": losses,
                         "avg_score": round(score_sum / rated, 1) if rated else None,
-                        "avg_seconds": round(ms_sum / done / 1000, 1) if done else None})
+                        "avg_seconds": round(ms_sum / done / 1000, 1) if done else None,
+                        "priority": round(self.priority(ref))})
         return out

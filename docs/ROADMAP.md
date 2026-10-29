@@ -19,7 +19,7 @@
 
 **For the owner to do by hand:**
 - **Nightly check:** Systems → *Check every night* is **off**. Turning it on adds a Task Scheduler task on this computer that runs at 03:30, so that's your click.
-- **Mistral:** pick the free *Experiment* plan (phone check, no card), then Get key.
+- Mistral was removed: its free plan asks for a card.
 - **Rotate the Cloudflare token** that was pasted into chat: delete it at dash.cloudflare.com → API Tokens, make a new one with the Workers AI template, paste it in Accounts.
 - **Helper extension in the Chrome Web Store** (optional): publishing needs a one-time $5 developer fee. The free path works today: the app catches copied keys itself, and `chrome://extensions` → Developer mode → Load unpacked → `extension/` still works.
 - **Tier 7 gate:** have a friend follow `docs/INSTALL.md` and time it.
@@ -34,7 +34,7 @@ Work top to bottom. Each tier ends with a **gate** — don't move on until it pa
 
 ## Tier 0 — Keys and workbench
 
-- [x] Free accounts + API keys: Groq, Google AI Studio, Cerebras, OpenRouter (+ NVIDIA, SambaNova, Cloudflare); Mistral still needs its free plan
+- [x] Free accounts + API keys: Groq, Google AI Studio, Cerebras, OpenRouter (+ NVIDIA, SambaNova, Cloudflare) (Mistral dropped: asks for a card)
 - [x] Python 3.12+, git and uv installed; `uv sync` works
 - [x] Keys stored (OS keychain via the app; `.env` still works for development and is git-ignored)
 - [x] GitHub repo created and pushed (without `.env`)

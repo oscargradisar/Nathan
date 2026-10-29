@@ -159,7 +159,7 @@ def test_connect_wizard_endpoints(web, monkeypatch):
     client.app.state.hub.checker = ok
     client.app.state.hub.saver = lambda p, key: "keychain"
     listing = client.get("/api/connect").json()["providers"]
-    assert [p["provider"] for p in listing][:5] == ["openrouter", "groq", "gemini", "cerebras", "mistral"]
+    assert [p["provider"] for p in listing][:4] == ["openrouter", "groq", "gemini", "cerebras"]
     cf = next(p for p in listing if p["provider"] == "cloudflare")
     assert "CLOUDFLARE_ACCOUNT_ID" in cf["missing_env"]
 

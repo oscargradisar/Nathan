@@ -7,7 +7,7 @@ from nathan.config import DEFAULT_CONFIG, load_providers, mask
 
 def test_providers_yaml_loads():
     providers = load_providers(DEFAULT_CONFIG, env_file=None)
-    assert {"groq", "gemini", "cerebras", "openrouter", "mistral"} <= providers.keys()
+    assert {"groq", "gemini", "cerebras", "openrouter"} <= providers.keys()
     for p in providers.values():
         assert p.base_url.startswith("https://")
         assert not p.key_env or p.key_env.endswith("_API_KEY")  # empty: keyless gateway

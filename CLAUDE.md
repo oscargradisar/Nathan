@@ -21,7 +21,6 @@ The full blueprint (architecture, model roster, patterns, risks) lives in the pr
 | Google AI Studio (Gemini) | `https://generativelanguage.googleapis.com/v1beta/openai/` | Long context (1M), planner, judge — low request limits |
 | Cerebras | `https://api.cerebras.ai/v1` | Fast second worker pool |
 | OpenRouter | `https://openrouter.ai/api/v1` | `:free` models only; 50 requests/day for the WHOLE account — use sparingly |
-| Mistral | `https://api.mistral.ai/v1` | Extra worker |
 
 There is no free OpenAI or Anthropic API. ChatGPT/Claude quality comes in via the **manual lane** (Tier 5): Nathan writes a prompt the owner pastes into the website, then the owner pastes the answer back.
 

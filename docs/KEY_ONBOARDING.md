@@ -31,7 +31,6 @@ Goal: the user presses **Connect**, a browser tab opens on the provider's key pa
 | Groq | Extension auto-capture | `console.groq.com/keys` | `gsk_…` |
 | Gemini | Extension auto-capture | `aistudio.google.com/apikey` | `AIza…` |
 | Cerebras | Extension auto-capture | `cloud.cerebras.ai` (API Keys) | `csk-…` |
-| Mistral | Extension auto-capture | `console.mistral.ai/api-keys` | 32 letters/digits (only while the Mistral step is active) |
 
 All of this (URLs, button text, key patterns) lives in `providers.yaml` under each provider's `onboarding:` block, so a dashboard redesign is a config fix, not a code change. `/refresh-models` should also re-check these pages.
 
@@ -43,7 +42,7 @@ All of this (URLs, button text, key patterns) lives in `providers.yaml` under ea
 4. Nathan calls `POST https://openrouter.ai/api/v1/auth/keys` with `{code, code_verifier, code_challenge_method: "S256"}` and receives the key.
 5. Test → keychain → close the listener.
 
-### Extension auto-capture (Groq, Gemini, Cerebras, Mistral)
+### Extension auto-capture (Groq, Gemini, Cerebras)
 
 1. User presses **Connect <provider>**. Nathan makes a one-time token and opens `<key page>#nathan=<token>` in the default browser.
 2. The extension's content script sees the token, then (from config) finds the "Create key" button by its text, clicks it, fills the name field with "Nathan", and confirms. If any element isn't found, it highlights where to click and shows a one-line hint instead.
@@ -68,7 +67,7 @@ All of this (URLs, button text, key patterns) lives in `providers.yaml` under ea
 ## The "Connect everything" wizard
 
 - One screen: each provider with a status (not connected, waiting for you, connected, failed + reason) and how much free capacity it adds.
-- Order: OpenRouter (OAuth) → Groq → Gemini → Cerebras → Mistral. **Connect all** runs them one after another.
+- Order: OpenRouter (OAuth) → Groq → Gemini → Cerebras. **Connect all** runs them one after another.
 - The user can stop after two; Nathan works with whatever is connected.
 - **Disconnect** deletes the key from the keychain (and links to the provider page to revoke it).
 

@@ -90,24 +90,6 @@ providers:
         tags: [writing]
         limits: {}
 
-  mistral:
-    base_url: https://api.mistral.ai/v1
-    key_env: MISTRAL_API_KEY
-    signup: https://console.mistral.ai/api-keys
-    onboarding:
-      method: extension
-      key_page: https://console.mistral.ai/api-keys
-      note: "If it asks you to upgrade, pick the free Experiment plan instead (phone check, no card)"
-      create_button: ["Create new key", "Create API key"]
-      name_field: ["Name", "Key name"]
-      confirm_button: ["Create new key", "Create key", "Create"]
-      # Mistral keys have no prefix, so only accept them while the Mistral step is active
-      key_pattern: '[A-Za-z0-9]{32}'
-    models:
-      mistral-small-latest:
-        tags: [writing, fast, tools]
-        limits: {}
-
   # ---- Tier 5 additions. Keys: paste them with `nathan connect <name>` or in .env ----
 
   nvidia:

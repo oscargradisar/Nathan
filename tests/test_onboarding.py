@@ -27,14 +27,12 @@ GOOD = {
     "gemini": "AIza" + "SyD-x_9" * 5,
     "cerebras": "csk-" + "a1b2c3d4e5" * 5,
     "openrouter": "sk-or-v1-" + "0123456789abcdef" * 4,
-    "mistral": "Zz90" * 8,  # built, not literal: real-looking keys trip secret scanners
 }
 BAD = {
     "groq": ["gsk_short", "GSK_" + "A1b2" * 13, "xgsk_" + "A1b2" * 13, "sk-" + "a" * 48],
     "gemini": ["AIza123", "Aiza" + "SyD-x_9" * 5, "AIza" + "SyD-x_9" * 5 + "extra"],
     "cerebras": ["csk-SHORT", "csk_" + "a1b2c3d4e5" * 5],
     "openrouter": ["sk-or-v1-xyz", "sk-or-v2-" + "0123456789abcdef" * 4, "sk-" + "0" * 64],
-    "mistral": ["tooshort", "Zz90" * 8 + "X", "Zz9-" + "Zz90" * 7],
 }
 
 
@@ -215,7 +213,7 @@ def test_keys_endpoint_expired_token(providers):
 
 def test_onboarding_json_lists_extension_providers_only(providers):
     data = TestClient(create_app(make_hub(providers, {}))).get("/onboarding.json").json()
-    assert set(data) == {"groq", "gemini", "cerebras", "mistral"}
+    assert set(data) == {"groq", "gemini", "cerebras"}
     assert data["groq"]["key_pattern"].startswith("gsk_")
 
 
@@ -301,9 +299,10 @@ async def test_connect_clipboard_fallback(providers):
 async def test_connect_manual_paste_fallback(providers):
     saved = {}
     hub = make_hub(providers, saved)
-    ok, _ = await connect(hub, "mistral", open_browser=lambda u: None, timeout=0.05,
-                          use_clipboard=False, ask_paste=lambda name: GOOD["mistral"])
-    assert ok and saved["mistral"] == GOOD["mistral"]
+    key = "sn-" + "k1" * 16  # SambaNova: paste-only provider
+    ok, _ = await connect(hub, "sambanova", open_browser=lambda u: None, timeout=0.05,
+                          use_clipboard=False, ask_paste=lambda name: key)
+    assert ok and saved["sambanova"] == key
 
 
 async def test_watch_clipboard_ignores_non_keys():
@@ -314,7 +313,7 @@ async def test_watch_clipboard_ignores_non_keys():
 
 
 def test_connect_order(providers):
-    assert connect_order(providers)[:5] == ["openrouter", "groq", "gemini", "cerebras", "mistral"]
+    assert connect_order(providers)[:4] == ["openrouter", "groq", "gemini", "cerebras"]
 
 
 async def test_cloudflare_account_id_found_from_token(monkeypatch):

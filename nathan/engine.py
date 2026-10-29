@@ -62,7 +62,7 @@ class Engine:
         self.staff = Staff(self.data / "staff.sqlite")
         # Elo is a tie-breaker after tag fit: well-rated workers get picked first everywhere
         self.roster = Roster(self.providers, self.quota,
-                             score=lambda ref: (self.staff.elo(ref) - START) / 400)
+                             score=lambda ref: (self.staff.priority(ref) - START) / 400)
         self.memory = memory if memory is not None else Memory(self.data / "memory.sqlite")
         self.workspace = workspace or workspace_dir()
 

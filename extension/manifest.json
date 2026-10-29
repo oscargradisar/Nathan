@@ -9,7 +9,6 @@
     "https://console.groq.com/*",
     "https://aistudio.google.com/*",
     "https://cloud.cerebras.ai/*",
-    "https://console.mistral.ai/*",
     "http://127.0.0.1/*"
   ],
   "background": { "service_worker": "background.js" },
@@ -18,8 +17,7 @@
       "matches": [
         "https://console.groq.com/*",
         "https://aistudio.google.com/*",
-        "https://cloud.cerebras.ai/*",
-        "https://console.mistral.ai/*"
+        "https://cloud.cerebras.ai/*"
       ],
       "js": ["core.js", "content.js"],
       "run_at": "document_idle"

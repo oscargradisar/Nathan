@@ -95,6 +95,8 @@ async def diagnostics(engine, emit: Emit | None = None, timeout: float = 45) -> 
             ok, reason = False, "no answer"
         r = {"ref": ref, "ok": ok, "seconds": round(time.perf_counter() - start, 1), "reason": reason}
         results.append(r)
+        if reason != "QuotaExceeded" and not (ok and res.cached):  # quota isn't the model's fault
+            engine.staff.record(ref, ok=ok, ms=r["seconds"] * 1000)
         await _emit(emit, {"type": "delivered" if ok else "task_failed", "id": ref, "worker": ref,
                            "role": "patient", "seconds": r["seconds"], "reason": reason,
                            "text": "" if ok else reason})

@@ -24,3 +24,13 @@ def test_upset_earns_more_than_expected_win():
     s2.db.execute("INSERT INTO staff (ref, elo) VALUES ('pro/m', 1300), ('rookie/m', ?)", (START,))
     expected_win = s2.rate({"rookie/m": 3, "pro/m": 8})["pro/m"]
     assert upset > expected_win
+
+
+def test_priority_weighs_speed_and_ghosts():
+    s = Staff()
+    s.db.execute("INSERT INTO staff (ref, elo) VALUES ('slow/m', 1069), ('quick/m', 1024)")
+    s.record("slow/m", ok=True, ms=36600)   # good but 36.6s a job
+    s.record("quick/m", ok=True, ms=8300)
+    s.record("ghost/m", ok=False)           # never delivered
+    assert s.priority("quick/m") > s.priority("slow/m") > s.priority("ghost/m")
+    assert s.priority("new/m") == START  # unknown models get a fair start

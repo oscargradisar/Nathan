@@ -15,7 +15,6 @@ const FAKE = {
   groq: "gsk_" + "Ab3D".repeat(13),
   gemini: "AIza" + "SyX-q_8".repeat(5),
   cerebras: "csk-" + "k4m9x2p7q1".repeat(5),
-  mistral: "Wq81".repeat(8),
 };
 
 function load(name, key) {
@@ -77,19 +76,13 @@ test("findNameField by label, placeholder, aria-label, or lone dialog input", ()
   assert.equal(core.findNameField(doc, ["zzz"]).id, "only");
 });
 
-for (const name of ["groq", "gemini", "cerebras", "mistral"]) {
+for (const name of ["groq", "gemini", "cerebras"]) {
   test(`automate captures a new ${name} key from the fixture page`, async () => {
     const win = load(name, FAKE[name]);
     const { key } = await capture(win, CONFIG[name]);
     assert.equal(key, FAKE[name]);
   });
 }
-
-test("mistral: a pre-existing 32-char id on the page is ignored", async () => {
-  const win = load("mistral", FAKE.mistral);
-  const { key } = await capture(win, CONFIG.mistral);
-  assert.notEqual(key, "QQ11WW22EE33RR44TT55YY66UU77II88");
-});
 
 test("redesigned page: shows a hint, still captures when the user clicks", async () => {
   const win = load("manual", FAKE.groq);

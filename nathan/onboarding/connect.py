@@ -15,7 +15,7 @@ from nathan.onboarding import oauth_openrouter
 from nathan.onboarding.clipboard import clipboard_available, watch_clipboard
 from nathan.onboarding.server import Hub
 
-ORDER = ["openrouter", "groq", "gemini", "cerebras", "mistral"]
+ORDER = ["openrouter", "groq", "gemini", "cerebras"]
 
 
 async def connect_oauth(hub: Hub, provider: str, *, open_browser: Callable[[str], object],
