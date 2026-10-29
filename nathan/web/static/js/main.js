@@ -2,7 +2,7 @@
 import { $, api, el, store, toast } from "./core.js";
 import { ask, initConsole, log, onRunFinished, setStaff } from "./console.js";
 import { play, setSound, soundOn } from "./sound.js";
-import { renderAccounts, renderHistory, renderStaff, renderSystems, runDiagnostics } from "./views.js";
+import { initSystemsControls, renderAccounts, renderHistory, renderStaff, renderSystems, runDiagnostics } from "./views.js";
 import { setVoice, voiceOn } from "./voice.js";
 
 const VIEWS = ["console", "staff", "accounts", "history", "systems"];
@@ -51,6 +51,7 @@ async function boot() {
   await refreshStaff().catch(() => null);
   initConsole(status ? status.staff_ready : "several");
   onRunFinished(() => { refreshStaff(); refreshStatus(); });
+  initSystemsControls();
   $("diag").onclick = () => runDiagnostics(() => { refreshStaff(); refreshStatus().then(() => renderSystems(status)); });
 
   // First run: send people to Accounts until two are connected, then come back by itself.

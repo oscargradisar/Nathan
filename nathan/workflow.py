@@ -145,7 +145,8 @@ async def hedged(engine, unit: str, chain: list[str], messages: list, emit: Emit
                     reason = type(e).__name__
                 if not reason:
                     ms = (time.perf_counter() - start) * 1000
-                    engine.staff.record(ref, ok=True, ms=ms)
+                    if not res.cached:  # a cache hit says nothing about this worker's speed
+                        engine.staff.record(ref, ok=True, ms=ms)
                     await _emit(emit, {"type": "delivered", "id": unit, "worker": ref, "role": role,
                                        "text": res.text, "seconds": round(ms / 1000, 1)})
                     return ref, res, ms

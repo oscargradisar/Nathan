@@ -128,6 +128,12 @@
   <section class="view" id="view-systems" aria-label="Systems" hidden>
     <div class="view-head"><h1>Systems</h1><p class="muted">Every start, Nathan asks each provider which models it still offers (free) and retires the ones that vanished. The full check below pings every model once, which uses one request each.</p></div>
     <div class="row"><button id="diag" class="go small">Run full systems check</button><span id="diag-note" class="muted"></span></div>
+    <div class="row">
+      <button id="nightly" class="toggle" aria-pressed="false">☾ <span>Check every night</span></button>
+      <span id="nightly-note" class="muted"></span>
+      <span class="spacer"></span>
+      <button id="open-ws" class="mini">Open workspace folder</button>
+    </div>
     <div id="sys-info" class="sys-info"></div>
     <div id="diag-units" class="units compact"></div>
     <pre id="diag-report" class="report" hidden></pre>

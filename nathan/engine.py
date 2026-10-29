@@ -48,9 +48,15 @@ class Engine:
         self.quota = quota if quota is not None else QuotaManager(
             self.providers, self.data / "quota.sqlite")
         if client is None:
-            client = Client(self.providers, quota=self.quota)
-        elif client.quota is None:
-            client.quota = self.quota
+            from nathan.cache import ResponseCache
+
+            self.cache = ResponseCache(self.data / "cache.sqlite")
+            self.cache.prune()
+            client = Client(self.providers, quota=self.quota, cache=self.cache)
+        else:
+            self.cache = client.cache
+            if client.quota is None:
+                client.quota = self.quota
         self.client = client
         self.staff = Staff(self.data / "staff.sqlite")
         # Elo is a tie-breaker after tag fit: well-rated workers get picked first everywhere

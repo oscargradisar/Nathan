@@ -94,8 +94,26 @@ export function renderSystems(status) {
     [status.gateways.length, "free gateways"], [`${status.staff_ready}/${status.staff_total}`, "models ready"],
     [status.memories, "memories"],
     [rc ? (rc.error ? "failed" : `${rc.retired.length} retired · ${rc.reinstated.length} back`) : "checking…", "startup roll call"],
+    [status.cache_hits, "answers from cache (free)"],
+    [status.last_check ? `${status.last_check.ok}/${status.last_check.total}` : "never", "last nightly check"],
   ];
   for (const [v, k] of items) box.append(el("div", { class: "panel" }, el("b", {}, String(v)), el("span", {}, k)));
+}
+
+export async function initSystemsControls() {
+  const btn = $("nightly"), note = $("nightly-note");
+  const paint = (s) => {
+    btn.setAttribute("aria-pressed", String(!!s.on));
+    btn.disabled = !s.supported;
+    note.textContent = !s.supported ? "needs Windows or macOS" : s.on ? `on · runs at ${s.at}, pings every model once` : "off";
+  };
+  let state = await api("/api/schedule").catch(() => ({ supported: false }));
+  paint(state);
+  btn.onclick = async () => {
+    try { state = { ...state, ...(await api("/api/schedule", { on: !state.on })) }; paint(state); play("click"); toast(`Nightly check ${state.on ? "on" : "off"}.`); }
+    catch (e) { toast(e.message, 5000); }
+  };
+  $("open-ws").onclick = () => api("/api/open-workspace", {}).catch((e) => toast(e.message));
 }
 
 export async function runDiagnostics(done) {

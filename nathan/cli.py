@@ -145,6 +145,38 @@ def quota() -> None:
 
 
 @app.command()
+def health(
+    ping: Annotated[bool, typer.Option("--ping/--no-ping",
+                                       help="also send one tiny request to every model")] = True,
+) -> None:
+    """Self-check: retire models providers stopped offering, then ping every model."""
+    from rich.table import Table
+
+    from nathan.health import diagnostics, roll_call
+
+    engine = build_engine()
+
+    async def run():
+        listed = await roll_call(engine)
+        results = await diagnostics(engine) if ping else []
+        await engine.close()
+        return listed, results
+
+    listed, results = asyncio.run(run())
+    for key, label in (("retired", "retired"), ("reinstated", "back on staff"), ("unchecked", "couldn't list")):
+        if listed[key]:
+            console.print(f"[bold]{label}:[/] {', '.join(listed[key])}")
+    if results:
+        table = Table(title="Model check")
+        for col in ("model", "ok", "seconds", "reason"):
+            table.add_column(col)
+        for r in results:
+            table.add_row(r["ref"], "[green]yes[/]" if r["ok"] else "[red]no[/]", str(r["seconds"]), r["reason"])
+        console.print(table)
+        console.print(f"{sum(r['ok'] for r in results)}/{len(results)} models answered")
+
+
+@app.command()
 def remember(fact: Annotated[str, typer.Argument(help="Something Nathan should remember")]) -> None:
     """Save a fact to long-term memory."""
     engine = build_engine()

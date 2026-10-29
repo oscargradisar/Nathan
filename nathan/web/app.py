@@ -48,6 +48,10 @@ class ManualIn(BaseModel):
     text: str
 
 
+class ScheduleIn(BaseModel):
+    on: bool
+
+
 class KeyIn(BaseModel):
     provider: str
     key: str
@@ -128,7 +132,42 @@ def create_app(engine, hub: Hub | None = None, self_check: bool = False) -> Fast
         return {"version": ver, "accounts": [p.name for p in keyed],
                 "gateways": [p.name for p in free], "staff_ready": len(staff),
                 "staff_total": total, "active_runs": sum(not r.finished for r in runs.runs.values()),
-                "roll_call": app.state.roll_call, "memories": engine.memory.count()}
+                "roll_call": app.state.roll_call, "memories": engine.memory.count(),
+                "cache_hits": getattr(engine.cache, "hits", 0) if engine.cache else 0,
+                "last_check": _last_check(engine.data)}
+
+    @app.get("/api/schedule")
+    def schedule_state() -> dict:  # schtasks is a subprocess: keep it off the event loop
+        from nathan import schedule
+
+        return {"supported": schedule.supported(), "on": schedule.supported() and schedule.is_on(),
+                "at": f"{schedule.AT[0]:02d}:{schedule.AT[1]:02d}"}
+
+    @app.post("/api/schedule")
+    def schedule_set(body: ScheduleIn) -> dict:
+        from nathan import schedule
+
+        if not schedule.supported():
+            raise HTTPException(400, "Nightly checks need Windows or macOS")
+        try:
+            schedule.turn_on() if body.on else schedule.turn_off()
+        except Exception as e:  # show the OS reason in plain words
+            raise HTTPException(500, f"Couldn't change the nightly check: {e}") from e
+        return {"on": schedule.is_on()}
+
+    @app.post("/api/open-workspace")
+    def open_workspace() -> dict:  # plain def: FastAPI runs it off the event loop
+        import os
+        import subprocess
+        import sys
+
+        ws = Path(engine.workspace)
+        ws.mkdir(parents=True, exist_ok=True)
+        if sys.platform == "win32":
+            os.startfile(ws)
+        else:
+            subprocess.run(["open" if sys.platform == "darwin" else "xdg-open", str(ws)], check=False)
+        return {"path": str(ws)}
 
     @app.get("/api/history")
     async def history(limit: int = 20) -> dict:
@@ -345,6 +384,15 @@ def create_app(engine, hub: Hub | None = None, self_check: bool = False) -> Fast
         return {"ok": True, "revoke_at": (p.onboarding.key_page if p.onboarding else p.signup)}
 
     return app
+
+
+def _last_check(data) -> dict | None:
+    try:
+        report = json.loads((data / "last_check.json").read_text())
+    except (OSError, ValueError):
+        return None
+    results = report.get("results", [])
+    return {"at": report.get("at"), "ok": sum(r["ok"] for r in results), "total": len(results)}
 
 
 def serve(engine=None, host: str = "127.0.0.1", port: int = 8765, open_browser: bool = True,

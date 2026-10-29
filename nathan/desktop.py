@@ -96,6 +96,24 @@ def open_window(url: str, home: Path, app) -> None:
     webview.start()
 
 
+def run_check(engine) -> dict:
+    """The nightly check: roll call (free) + one ping per model. Saved to last_check.json."""
+    import asyncio
+    import json
+
+    from nathan.health import diagnostics, roll_call
+
+    async def go() -> dict:
+        listed = await roll_call(engine)
+        results = await diagnostics(engine)
+        await engine.close()
+        return {"at": time.time(), "roll_call": listed, "results": results}
+
+    report = asyncio.run(go())
+    (engine.data / "last_check.json").write_text(json.dumps(report, indent=1))
+    return report
+
+
 def main() -> None:
     home = use_app_folders()
     if sys.stdout is None or sys.stderr is None:
@@ -106,6 +124,11 @@ def main() -> None:
     from nathan.engine import Engine
 
     engine = Engine()
+    if "--check" in sys.argv:  # nightly scheduled task: no window
+        report = run_check(engine)
+        ok = sum(r["ok"] for r in report["results"])
+        print(f"nightly check: {ok}/{len(report['results'])} models answered", flush=True)
+        return
     server, url = start_server(engine)
     open_window(url + first_page(engine), home, server.config.app)
     server.should_exit = True

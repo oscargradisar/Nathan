@@ -111,3 +111,31 @@ async def test_quick_mode_prefers_the_fastest_model(make_engine):
     assert engine.fastest(["fast"])[0] == fast
     ans = await engine.ask("hi", mode="single", use_memory=False)
     assert ans.models == [fast]
+
+
+def test_schedule_endpoints_report_state(make_engine, monkeypatch):
+    from nathan import schedule
+
+    state = {"on": False}
+    monkeypatch.setattr(schedule, "supported", lambda: True)
+    monkeypatch.setattr(schedule, "is_on", lambda: state["on"])
+    monkeypatch.setattr(schedule, "turn_on", lambda: state.update(on=True))
+    monkeypatch.setattr(schedule, "turn_off", lambda: state.update(on=False))
+    engine = make_engine(lambda *a, **k: "x")
+    with TestClient(create_app(engine)) as client:
+        assert client.get("/api/schedule").json()["on"] is False
+        assert client.post("/api/schedule", json={"on": True}, headers=H).json()["on"] is True
+        assert client.post("/api/schedule", json={"on": False}, headers=H).json()["on"] is False
+
+
+def test_nightly_check_writes_a_report(make_engine, monkeypatch):
+    from nathan import desktop
+
+    async def no_roll_call(engine, http=None):
+        return {"retired": [], "reinstated": [], "unchecked": []}
+
+    monkeypatch.setattr("nathan.health.roll_call", no_roll_call)
+    engine = make_engine(lambda *a, **k: "OK")
+    report = desktop.run_check(engine)
+    assert report["results"] and all(r["ok"] for r in report["results"])
+    assert (engine.data / "last_check.json").exists()
