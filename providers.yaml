@@ -150,8 +150,9 @@ providers:
       method: manual
       key_page: https://dash.cloudflare.com/profile/api-tokens
       account_id_url: https://api.cloudflare.com/client/v4/accounts
-      # Workers AI's OpenAI-style URL has no GET /models (405), so test the token here
-      check_url: https://api.cloudflare.com/client/v4/user/tokens/verify
+      # Workers AI's OpenAI-style URL has no GET /models (405). This one works for both
+      # user tokens and account tokens (cfat_...).
+      check_url: https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/ai/models/search?per_page=1
       note: "Create a token with the 'Workers AI' template. Nathan finds your account id by itself."
     models:
       "@cf/meta/llama-3.3-70b-instruct-fp8-fast":

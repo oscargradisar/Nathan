@@ -90,7 +90,11 @@ class Provider(BaseModel):
 
     @property
     def resolved_base_url(self) -> str:
-        return re.sub(r"\$\{(\w+)\}", lambda m: _var(m.group(1)) or "", self.base_url)
+        return self.resolve(self.base_url)
+
+    def resolve(self, text: str) -> str:
+        """Fill ${VAR}s (like the Cloudflare account id) in a URL."""
+        return re.sub(r"\$\{(\w+)\}", lambda m: _var(m.group(1)) or "", text)
 
     @property
     def api_key(self) -> str | None:

@@ -337,6 +337,6 @@ async def test_cloudflare_account_id_found_from_token(monkeypatch):
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         assert await check_key(cf, "token", client) == (True, "key works")
-    assert seen[-1] == "/client/v4/user/tokens/verify"  # Workers AI has no GET /models
+    assert seen[-1] == "/client/v4/accounts/abc123/ai/models/search"  # no GET /models there
     assert not cf.missing_env
     assert cf.resolved_base_url.endswith("/accounts/abc123/ai/v1")
