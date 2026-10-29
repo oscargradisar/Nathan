@@ -21,6 +21,26 @@ from platformdirs import user_data_dir
 MIN_CONNECTED = 2  # first run stays on the Connect page until this many accounts work
 # Hidden pages may only run timers once a minute, so allow longer than that before quitting.
 IDLE_QUIT_S = 90
+_camera_process = None
+
+
+def close_camera_window() -> None:
+    """Close only the dedicated camera browser process owned by Nathan."""
+    global _camera_process
+    if sys.platform == "win32":
+        # Edge can relaunch or forward to an existing process; identify our private profile.
+        env = {**os.environ, "NATHAN_CAMERA_PROFILE": str(
+            Path(user_data_dir("Nathan", appauthor=False)) / "camera-viewer")}
+        subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command",
+                        ("Get-CimInstance Win32_Process -Filter \"name = 'msedge.exe'\" | "
+                        "Where-Object { $_.CommandLine -and "
+                        "$_.CommandLine.Contains($env:NATHAN_CAMERA_PROFILE) -and "
+                        "$_.CommandLine -notlike '*--type=*' } | "
+                        "ForEach-Object { taskkill /PID $_.ProcessId /T /F | Out-Null }")],
+                       env=env, creationflags=0x08000000, capture_output=True, check=False)
+    elif _camera_process is not None and _camera_process.poll() is None:
+        _camera_process.terminate()
+    _camera_process = None
 
 
 def use_app_folders() -> Path:
@@ -79,6 +99,28 @@ def edge_path() -> str | None:
     return shutil.which("msedge")
 
 
+def open_camera_window(url: str) -> None:
+    """Use a standalone app window: OpenCCTV disallows embedding in our page."""
+    from urllib.parse import urlsplit
+
+    global _camera_process
+    parsed = urlsplit(url)
+    if parsed.scheme != "https" or parsed.netloc != "opencctv.org" or parsed.path != "/":
+        raise ValueError("Only OpenCCTV location URLs are supported")
+    if sys.platform == "win32" and (edge := edge_path()):
+        home = Path(user_data_dir("Nathan", appauthor=False))
+        close_camera_window()
+        # A separate profile prevents inheriting the main window's fullscreen state.
+        _camera_process = subprocess.Popen([
+            edge, f"--app={url}", f"--user-data-dir={home / 'camera-viewer'}",
+            "--no-first-run", "--edge-skip-compat-layer-relaunch",
+            "--window-size=1100,760", "--window-position=120,80"])
+    else:
+        import webbrowser
+
+        webbrowser.open(url)
+
+
 def open_window(url: str, home: Path, app) -> None:
     """Show the app and block until its window is closed."""
     if sys.platform == "win32" and (edge := edge_path()):
@@ -86,7 +128,7 @@ def open_window(url: str, home: Path, app) -> None:
         # Edge may hand the window to another of its processes, so instead of waiting on the
         # process we treat "the page stopped polling" as "the window was closed".
         subprocess.Popen([edge, f"--app={url}", f"--user-data-dir={home / 'window'}",
-                          "--no-first-run", "--start-fullscreen"])  # F11 leaves fullscreen
+                          "--no-first-run", "--window-size=1280,860"])
         while time.monotonic() - app.state.last_seen < IDLE_QUIT_S:
             time.sleep(2)
         return
@@ -131,6 +173,7 @@ def main() -> None:
         return
     server, url = start_server(engine)
     open_window(url + first_page(engine), home, server.config.app)
+    close_camera_window()
     server.should_exit = True
 
 

@@ -16,6 +16,7 @@ workspace/*
 !workspace/.gitkeep
 autopilot.log
 data/
+!nathan/web/static/data/
 
 # packaging output
 build/

@@ -1,0 +1,10 @@
+[
+  {"id":"demo-ljubljana","title":"Ljubljana · demo image","category":"city","coordinates":[14.5058,46.0569],"region":"Europe","country":"Slovenia","streamUrl":"/static/data/geomedia-demo.svg","streamType":"image-poll","refreshIntervalMs":5000},
+  {"id":"demo-ljubljana-center","title":"Ljubljana center · demo image","category":"city","coordinates":[14.506,46.0572],"region":"Europe","country":"Slovenia","streamUrl":"/static/data/geomedia-demo.svg","streamType":"image-poll","refreshIntervalMs":10000},
+  {"id":"demo-paris","title":"Paris · HLS test stream","category":"city","coordinates":[2.3522,48.8566],"region":"Europe","country":"France","streamUrl":"https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8","streamType":"hls","attributionUrl":"https://test-streams.mux.dev/"},
+  {"id":"demo-anchorage","title":"Anchorage · demo image","category":"nature","coordinates":[-149.9003,61.2181],"region":"North America","country":"United States","streamUrl":"/static/data/geomedia-demo.svg","streamType":"image-poll","refreshIntervalMs":5000},
+  {"id":"demo-tokyo","title":"Tokyo · HLS test stream","category":"city","coordinates":[139.6917,35.6895],"region":"Asia","country":"Japan","streamUrl":"https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8","streamType":"hls","attributionUrl":"https://test-streams.mux.dev/"},
+  {"id":"demo-sydney","title":"Sydney · MP4 test clip","category":"harbor","coordinates":[151.2093,-33.8688],"region":"Oceania","country":"Australia","streamUrl":"https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4","streamType":"mp4","attributionUrl":"https://developer.mozilla.org/en-US/docs/Web/HTML/Element/video"},
+  {"id":"demo-london","title":"London · sandboxed demo embed","category":"city","coordinates":[-0.1276,51.5072],"region":"Europe","country":"United Kingdom","streamUrl":"/static/data/geomedia-demo.svg","streamType":"iframe"},
+  {"id":"demo-dateline","title":"Dateline · demo image","category":"nature","coordinates":[179.9,-16.5],"region":"Oceania","country":"Fiji","streamUrl":"/static/data/geomedia-demo.svg","streamType":"image-poll","refreshIntervalMs":15000}
+]

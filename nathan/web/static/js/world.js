@@ -2,6 +2,7 @@
 // anywhere (world_view tool); you can too. The 3D globe loads on first visit.
 import { $, api, el, toast } from "./core.js";
 import { play } from "./sound.js";
+import { GeoMediaLayer } from "./geomedia.js";
 
 const LIB = "https://cdn.jsdelivr.net/npm/globe.gl@2.27.2/dist/globe.gl.min.js";
 const IMG = "https://cdn.jsdelivr.net/npm/three-globe@2.31.1/example/img/";
@@ -10,8 +11,10 @@ const LAYERS = {
   quakes: { color: "#ff5f7e", label: "Earthquakes (24h)", size: 0.6 },
   iss: { color: "#ffb54a", label: "ISS", size: 1.2 },
   shops: { color: "#43e0a0", label: "Shops", size: 0.12 },
+  media: { color: "#b59aff", label: "Media", size: 0.25 },
 };
 let world = null, on = new Set(["quakes", "iss"]), here = { lat: 46.05, lon: 14.51 }, data = {}, seenV = -1;
+let media;
 
 function loadLib() {
   return window.Globe ? Promise.resolve() : new Promise((ok, fail) => {
@@ -36,6 +39,7 @@ export async function openWorld() {
       .width(box.clientWidth).height(box.clientHeight);
     world.controls().autoRotate = true; world.controls().autoRotateSpeed = 0.35;
     addEventListener("resize", () => world && world.width($("globe").clientWidth).height($("globe").clientHeight));
+    media = new GeoMediaLayer(world, drawCount);
     buildControls();
     setInterval(followFocus, 2500);
     setInterval(() => on.has("iss") && refresh("iss"), 8000);
@@ -54,6 +58,7 @@ function tip(d) {
 function readout(d) { $("w-read").textContent = `${LAYERS[d.layer].label}: ${d.label || ""} (${d.lat.toFixed(2)}, ${d.lon.toFixed(2)})`; play("click"); }
 
 async function refresh(layer) {
+  if (layer === "media") { media.setVisible(true); drawCount(); return; }
   const q = layer === "planes" || layer === "shops" ? `?lat=${here.lat}&lon=${here.lon}` : "";
   const r = await api(`/api/globe/${layer}${q}`).catch(() => ({ items: [] }));
   if (r.error) toast(r.error);
@@ -63,23 +68,35 @@ async function refresh(layer) {
 function draw() {
   if (!world) return;
   const pts = [...on].flatMap((l) => data[l] || []);
-  world.pointsData(pts).ringsData([...(data.iss || []), ...(data.quakes || []).filter((q) => q.mag >= 4.5)]);
-  $("w-count").textContent = [...on].map((l) => `${(data[l] || []).length} ${LAYERS[l].label.toLowerCase()}`).join(" · ");
+  world.pointsData(pts).ringsData([...(on.has("iss") ? data.iss || [] : []), ...(on.has("quakes") ? data.quakes || [] : []).filter((q) => q.mag >= 4.5)]);
+  drawCount();
+}
+function drawCount() {
+  $("w-count").textContent = [...on].map((l) => l === "media" ? `${media?.count || 0} visible media` : `${(data[l] || []).length} ${LAYERS[l].label.toLowerCase()}`).join(" · ");
 }
 
 function buildControls() {
+  $("w-form").querySelector("button").disabled = false;
   const box = $("w-layers"); box.textContent = "";
   for (const [id, l] of Object.entries(LAYERS)) {
     box.append(el("button", { class: "toggle", "aria-pressed": String(on.has(id)), style: `--c:${l.color}`,
       onclick: (e) => { on.has(id) ? on.delete(id) : on.add(id); e.currentTarget.setAttribute("aria-pressed", String(on.has(id)));
+        if (id === "media") media.setVisible(on.has(id));
         on.has(id) ? refresh(id) : draw(); play("click"); } }, el("i", { class: "dot" }), l.label));
   }
   $("w-form").onsubmit = async (e) => {
     e.preventDefault();
-    const place = $("w-place").value.trim(); if (!place) return;
-    $("w-read").textContent = "locating…";
-    const r = await api("/api/globe/focus", { place, layers: [...on] }).catch((x) => ({ summary: x.message }));
-    $("w-read").textContent = r.summary;
+    const prompt = $("w-place").value.trim(); if (!prompt) return;
+    const button = e.currentTarget.querySelector("button"); button.disabled = true;
+    $("w-read").textContent = "Finding cameras and globe data for " + prompt + "…";
+    $("cctv-result").replaceChildren();
+
+    try {
+      const result = await api("/api/globe/search", { place: prompt });
+      $("w-read").textContent = result.summary;
+      await followFocus();
+    } catch (error) { $("w-read").textContent = error.message; }
+    finally { button.disabled = false; }
   };
 }
 
@@ -90,8 +107,16 @@ async function followFocus() {
   here = { lat: f.lat, lon: f.lon };
   if (!first || f.v > 0) {
     world.controls().autoRotate = false;
-    world.pointOfView({ lat: f.lat, lng: f.lon, altitude: f.alt }, 2200);
-    f.layers.forEach((l) => on.add(l)); buildControls();
+    if (!f.media || f.media.id) world.pointOfView({ lat: f.lat, lng: f.lon, altitude: f.alt }, 2200);
+    if (f.replaceLayers) on = new Set(f.layers);
+    else f.layers.forEach((l) => on.add(l));
+    if (f.media) {
+      if (f.media.nodes) media.replace(f.media.nodes, f.media.id);
+      f.media.visible ? on.add("media") : on.delete("media");
+      media.filter({ category: f.media.category || "", region: f.media.region || "", country: f.media.country || "" });
+    }
+    media.setVisible(on.has("media")); buildControls();
+    if (f.media?.id && f.media.visible) media.select(f.media.id, Boolean(f.media.nodes));
     if (f.label) { $("w-read").textContent = "Nathan is looking at " + f.label; play("route"); }
   }
   for (const l of on) refresh(l);

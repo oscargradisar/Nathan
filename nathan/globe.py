@@ -12,10 +12,16 @@ view flies there.
 
 from __future__ import annotations
 
+import asyncio
+import re
 import time
-from typing import Any
+from typing import Any, Literal
 
 import httpx2 as httpx
+from pydantic import BaseModel, Field
+
+from nathan.errors import NoModelAvailable
+from nathan.jsonutil import ask_json
 
 UA = {"user-agent": "Nathan/1.0 (https://github.com/oscargradisar/Nathan) httpx2"}
 _cache: dict[str, tuple[float, Any]] = {}
@@ -79,7 +85,10 @@ async def point(place: str, layers: list[str]) -> str:
     g = await geocode(place)
     if g is None:
         return f"Couldn't find {place!r} on the map."
-    layers = [x for x in layers if x in ("planes", "quakes", "iss", "shops")] or ["planes"]
+    layers = [x for x in layers if x in ("planes", "quakes", "iss", "shops", "media")] or ["planes"]
+    focus.pop("media", None)
+    focus.pop("cctv", None)
+    focus.pop("replaceLayers", None)
     focus.update(lat=g["lat"], lon=g["lon"], alt=0.6 if "shops" in layers else 1.2, label=g["label"],
                  layers=layers, v=focus["v"] + 1)
     parts = []
@@ -93,3 +102,92 @@ async def point(place: str, layers: list[str]) -> str:
     except httpx.HTTPError as e:
         parts.append(f"some data didn't load ({type(e).__name__})")
     return f"World view: flying to {g['label']}" + (": " + ", ".join(parts) if parts else "") + "."
+
+
+def parse_search(prompt: str) -> tuple[str, str, list[str]]:
+    """Extract a layer and place before handing only the place to the geocoder."""
+    prompt = prompt.strip().strip("?.!")
+    if not prompt or len(prompt) > 500:
+        raise ValueError("Describe what you want to see (up to 500 characters).")
+    patterns = {
+        "cameras": r"(?:public\s+|live\s+|traffic\s+)?(?:cameras?|webcams?|cctv)",
+        "planes": r"aircraft|airplanes?|aeroplanes?|planes?|flights?",
+        "quakes": r"earthquakes?|quakes?|tremors?",
+        "iss": r"iss|international space station",
+        "shops": r"shops?|places",
+    }
+    matches = [(match, layer) for layer, pattern in patterns.items()
+               for match in re.finditer(r"\b(?:" + pattern + r")\b", prompt, re.IGNORECASE)]
+    if not matches:
+        place = re.sub(r"^(?:please\s+)?(?:fly|go|take me)\s+to\s+", "", prompt, flags=re.IGNORECASE)
+        return "layers", place, ["planes"]
+    matches.sort(key=lambda pair: pair[0].start())
+    layers = list(dict.fromkeys(layer for _, layer in matches if layer != "cameras"))
+    kind = "cameras" if any(layer == "cameras" for _, layer in matches) else "layers"
+    place = prompt[matches[-1][0].end():].strip()
+    place = re.sub(r"^(?:\s*(?:in|near|over|around|at|of|for|from|somewhere in)\b)+", "", place, flags=re.IGNORECASE).strip()
+    place = re.sub(r"\b(?:somewhere|randomly|random|anywhere|please|today|right now)\b", "", place, flags=re.IGNORECASE).strip(" \"'")
+    if not place:
+        prefix = prompt[:matches[0][0].start()].strip()
+        prefix = re.sub(r"^(?:(?:please|show|me|find|open|display|the|live|latest|recent|all|public|traffic|see)\b\s*)+", "", prefix, flags=re.IGNORECASE)
+        place = prefix.strip()
+    if place.lower() in ("worldwide", "globally", "around the world", "everywhere", "the world"):
+        place = ""
+    if kind == "cameras" and not place:
+        raise ValueError("Where would you like to see cameras? Try 'public cameras in Ljubljana'.")
+    return kind, place, layers
+
+
+class WorldIntent(BaseModel):
+    kind: Literal["cameras", "layers"]
+    place: str = Field(max_length=300)
+    layers: list[Literal["planes", "quakes", "iss", "shops"]] = Field(default_factory=list)
+
+
+async def interpret(engine, prompt: str) -> tuple[str, str, list[str]]:
+    if not prompt.strip() or len(prompt) > 500:
+        raise ValueError("Describe what you want to see (up to 500 characters).")
+    refs = engine.fastest(["cheap", "fast"])[:1] if engine else []
+    if refs:
+        messages = [{"role": "system", "content":
+            'Interpret a globe request. Return ONLY JSON: {"kind":"cameras" or "layers",'
+            '"place":"geocodable location only", "layers":["planes","quakes","iss","shops"]}. '
+            'Use only requested layers. Cameras use kind cameras and layers []. '
+            'Remove conversational filler, somewhere, random, and viewing instructions from place. '
+            'Normalize ambiguous places, e.g. Colorado -> Colorado, United States. '
+            'For random/any camera in a region, keep that region; do not invent a camera or street. '
+            'Empty place means worldwide for layers; cameras require a place.'},
+            {"role": "user", "content": prompt}]
+        try:
+            intent, _ = await asyncio.wait_for(ask_json(
+                engine.client, refs, messages, WorldIntent, max_tokens=200, temperature=0), 6)
+            if intent.kind == "layers" and not intent.layers:
+                intent.layers = ["planes"]
+            if intent.kind != "cameras" or intent.place.strip():
+                return intent.kind, intent.place.strip(), intent.layers
+        except (NoModelAvailable, TimeoutError):
+            pass
+    return parse_search(prompt)
+
+
+async def search(prompt: str, engine=None) -> dict:
+    kind, place, layers = await interpret(engine, prompt)
+    if kind == "cameras":
+        from nathan.geomedia import findPublicCameras
+
+        camera = await findPublicCameras(place)
+        return {"kind": kind, "summary": f"Loaded {camera.get('count', 0)} public cameras near {camera['label']}.",
+                "focus": focus}
+    location = await geocode(place) if place else None
+    if place and location is None:
+        raise ValueError(f"Couldn't find {place!r}. Try a city, country or address.")
+    focus.pop("media", None)
+    focus.pop("cctv", None)
+    if location:
+        focus.update(lat=location["lat"], lon=location["lon"], label=location["label"], alt=1.2)
+    focus.update(layers=layers, replaceLayers=True, v=focus["v"] + 1)
+    labels = {"planes": "aircraft", "quakes": "earthquakes", "iss": "the ISS", "shops": "places"}
+    summary = "Showing " + " and ".join(labels[layer] for layer in layers)
+    if location:
+        summary += " near " + location["label"]
+    return {"kind": kind, "summary": summary + ".", "focus": focus}

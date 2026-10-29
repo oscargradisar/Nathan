@@ -53,6 +53,10 @@ class GlobeIn(BaseModel):
     layers: list[str] = []
 
 
+class CameraOpenIn(BaseModel):
+    url: str
+
+
 class SettingsIn(BaseModel):
     manager: str
 
@@ -266,6 +270,53 @@ def create_app(engine, hub: Hub | None = None, self_check: bool = False) -> Fast
         from nathan import globe
 
         return globe.focus
+
+    @app.get("/api/geomedia/catalogue")
+    async def media_catalogue() -> dict:
+        from nathan.geomedia import catalogue
+
+        return await catalogue()
+
+    @app.post("/api/geomedia/cameras")
+    async def public_cameras(body: GlobeIn) -> dict:
+        from nathan.geomedia import findPublicCameras
+
+        try:
+            return await findPublicCameras(body.place)
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from e
+        except Exception as e:
+            raise HTTPException(502, "Location lookup unavailable; please try again.") from e
+
+    @app.post("/api/geomedia/cameras/open")
+    def open_public_cameras(body: CameraOpenIn) -> dict:
+        from nathan.desktop import open_camera_window
+
+        try:
+            open_camera_window(body.url)
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from e
+        except OSError as e:
+            raise HTTPException(502, "Couldn't open the camera window. Please try again.") from e
+        return {"opened": True}
+
+    @app.post("/api/globe/search")
+    async def globe_search(body: GlobeIn) -> dict:
+        from nathan import globe
+
+        try:
+            return await globe.search(body.place, engine)
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from e
+        except Exception as e:
+            raise HTTPException(502, "Location lookup unavailable; please try again.") from e
+
+    @app.post("/api/geomedia/cameras/close")
+    def close_public_cameras() -> dict:
+        from nathan.desktop import close_camera_window
+
+        close_camera_window()
+        return {"closed": True}
 
     @app.post("/api/globe/focus")
     async def globe_point(body: GlobeIn) -> dict:

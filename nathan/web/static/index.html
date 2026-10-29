@@ -127,12 +127,15 @@
     <div id="globe" class="globe"></div>
     <div class="w-hud panel">
       <header><h2>World view</h2></header>
-      <form id="w-form" class="row"><input id="w-place" placeholder="Fly to… (a city, a country, an address)" aria-label="Fly to a place"><button class="go small">GO</button></form>
+      <form id="w-form" class="row"><input id="w-place" placeholder="Show aircraft over Paris, earthquakes in Japan, cameras in Ljubljana…" aria-label="What do you want to see?" maxlength="300" required><button class="go small" disabled>SHOW</button></form>
       <div id="w-layers" class="w-layers"></div>
+      <div id="cctv-result" class="muted" role="status"></div>
+      <p id="media-status" class="muted" role="status" hidden></p>
       <div id="w-count" class="muted w-count"></div>
       <div id="w-read" class="w-read">Ask Nathan "show me planes over Tokyo", or fly there yourself.</div>
       <p class="muted w-src">Open data: OpenSky (aircraft), USGS (earthquakes), wheretheiss.at, OpenStreetMap.</p>
     </div>
+    <aside id="media-inspector" class="panel media-inspector" role="dialog" aria-labelledby="media-title" aria-modal="false" hidden></aside>
   </section>
 
   <!-- CODE -->

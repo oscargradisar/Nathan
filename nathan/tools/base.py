@@ -89,14 +89,31 @@ def default_toolbox(memory=None, workspace=None, engine=None) -> Toolbox:
     for tool in desktop.make_tools():
         box.add(tool)
 
-    async def world(place: str, layers: str = "planes") -> str:
+    async def world(place: str, layers: str = "") -> str:
         from nathan import globe
 
+        if not layers:
+            return json.dumps(await globe.search(place, engine))
         return await globe.point(place, [x.strip() for x in layers.split(",")])
 
-    box.add(Tool("world_view", "Fly Nathan's globe (the World view) to a place and show live layers: "
-                 "planes, quakes, iss, shops (comma-separated). Returns what's there.",
+    box.add(Tool("world_view", "Show a request in Nathan's World view, e.g. aircraft over Paris, "
+                 "earthquakes near Japan or public cameras in Ljubljana. Or specify a place and layers: "
+                 "planes, quakes, iss, shops, media (comma-separated). Returns what's there.",
                  params(["place"], place=("string", "a place name"), layers=("string", "e.g. 'planes,shops'")), world))
+    from nathan.geomedia import filterMediaNodes, findPublicCameras, flyToMediaNode
+
+    box.add(Tool("findPublicCameras", "Load real public cameras for a location from OpenCCTV into "
+                 "Nathan's globe. Automatically opens a feed inside World view. "
+                 "Use when asked for webcams/CCTV/cameras at a place; bounded to 50 results.",
+                 params(place=("string", "specific city, address or landmark")), findPublicCameras))
+
+    box.add(Tool("filterMediaNodes", "Show/hide globe media and search nodes by region, category or country. "
+                 "Returns IDs to use with flyToMediaNode. Empty filters reset the search.",
+                 params([], region=("string", "exact region, case insensitive"),
+                        category=("string", "category"), country=("string", "country"),
+                        visible=("boolean", "whether the media layer is visible")), filterMediaNodes))
+    box.add(Tool("flyToMediaNode", "Fly to a media node ID and open its media inspector in World view.",
+                 params(id=("string", "media node ID from filterMediaNodes")), flyToMediaNode))
     if engine is not None:
         async def research(question: str) -> str:
             from nathan.research import run_research

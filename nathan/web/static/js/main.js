@@ -12,6 +12,15 @@ import { openWorld } from "./world.js";
 
 const VIEWS = ["console", "world", "code", "staff", "accounts", "history", "systems"];
 let status = null;
+let worldVersion = null;
+
+async function followWorldRequest() {
+  const focus = await api("/api/globe/focus").catch(() => null);
+  if (!focus) return;
+  const changed = worldVersion !== null && worldVersion !== focus.v;
+  worldVersion = focus.v;
+  if (changed && focus.media?.nodes?.length) location.hash = "#world";
+}
 
 // Old page addresses (/connect, /workflow, /leaderboard) land on the matching view.
 const legacy = { "/connect": "accounts", "/leaderboard": "staff", "/workflow": "console" }[location.pathname];
@@ -94,7 +103,8 @@ async function boot() {
   show();
 
   // Live chips and staff; this polling also tells the desktop app the window is still open.
-  setInterval(() => { refreshStatus().catch(() => null); refreshStaff().catch(() => null); }, 5000);
+  followWorldRequest();
+  setInterval(() => { refreshStatus().catch(() => null); refreshStaff().catch(() => null); followWorldRequest(); }, 5000);
 
   document.addEventListener("keydown", (e) => {
     const typing = /INPUT|TEXTAREA/.test(document.activeElement?.tagName || "");

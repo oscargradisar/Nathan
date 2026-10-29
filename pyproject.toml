@@ -17,6 +17,7 @@ dependencies = [
     "pyperclip>=1.11.0",
     "pywebview>=6.2.1; sys_platform == 'darwin'",
     "platformdirs>=4.14.0",
+    "playwright>=1.64.1",
 ]
 
 [dependency-groups]

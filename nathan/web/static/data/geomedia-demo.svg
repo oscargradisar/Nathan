@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540">
+  <rect width="960" height="540" fill="#080f20"/>
+  <circle cx="480" cy="210" r="100" fill="none" stroke="#b59aff" stroke-width="3"/>
+  <path d="M380 210h200M480 110v200" stroke="#3fd3ff" stroke-width="2"/>
+  <text x="480" y="375" text-anchor="middle" font-family="sans-serif" font-size="32" fill="#dfd2ff">GeoMedia demo image</text>
+  <text x="480" y="420" text-anchor="middle" font-family="sans-serif" font-size="20" fill="#94a3b8">Synthetic fixture · not a live camera</text>
+</svg>
