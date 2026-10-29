@@ -141,15 +141,16 @@ providers:
         limits: {}
 
   cloudflare:
-    # Workers AI free allocation (10,000 "neurons"/day). Needs your account id as well:
-    # set CLOUDFLARE_ACCOUNT_ID in .env (dash.cloudflare.com → Workers AI → "Use REST API").
+    # Workers AI free allocation (10,000 "neurons"/day). The URL needs your account id:
+    # Connect looks it up with the token (account_id_url), or set CLOUDFLARE_ACCOUNT_ID in .env.
     base_url: https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/ai/v1
     key_env: CLOUDFLARE_API_KEY
     signup: https://dash.cloudflare.com/profile/api-tokens
     onboarding:
       method: manual
       key_page: https://dash.cloudflare.com/profile/api-tokens
-      note: "Create a token with the 'Workers AI' template, and set CLOUDFLARE_ACCOUNT_ID too."
+      account_id_url: https://api.cloudflare.com/client/v4/accounts
+      note: "Create a token with the 'Workers AI' template. Nathan finds your account id by itself."
     models:
       "@cf/meta/llama-3.3-70b-instruct-fp8-fast":
         tags: [writing, fast]

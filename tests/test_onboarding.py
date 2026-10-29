@@ -313,3 +313,29 @@ async def test_watch_clipboard_ignores_non_keys():
 
 def test_connect_order(providers):
     assert connect_order(providers)[:5] == ["openrouter", "groq", "gemini", "cerebras", "mistral"]
+
+
+async def test_cloudflare_account_id_found_from_token(monkeypatch):
+    """Cloudflare's URL needs the account id; without it every call was a 404."""
+    import httpx2 as httpx
+
+    from nathan.config import DEFAULT_CONFIG, load_providers
+    from nathan.onboarding.keytest import check_key
+
+    monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", "")  # so monkeypatch removes it again afterwards
+    monkeypatch.delenv("CLOUDFLARE_ACCOUNT_ID")
+    monkeypatch.setattr("nathan.keys.get_key", lambda *a: None)  # nothing in the keychain
+    cf = load_providers(DEFAULT_CONFIG, env_file=None)["cloudflare"]
+    assert cf.missing_env == ["CLOUDFLARE_ACCOUNT_ID"]
+    seen = []
+
+    def handler(req):
+        seen.append(req.url.path)
+        if req.url.path == "/client/v4/accounts":
+            return httpx.Response(200, json={"result": [{"id": "abc123"}]})
+        return httpx.Response(200, json={"data": []})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        assert await check_key(cf, "token", client) == (True, "key works")
+    assert seen[-1] == "/client/v4/accounts/abc123/ai/v1/models"
+    assert not cf.missing_env

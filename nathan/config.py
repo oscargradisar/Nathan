@@ -38,6 +38,13 @@ class Limits(BaseModel):
     tpd: int | None = None  # tokens per day
 
 
+def _var(name: str) -> str | None:
+    """A ${VAR} in a base_url: from the environment, else saved in the keychain by Connect."""
+    from nathan.keys import get_key
+
+    return os.getenv(name) or get_key(name, name)
+
+
 class ModelSpec(BaseModel):
     tags: list[str] = Field(default_factory=list)
     limits: Limits = Field(default_factory=Limits)
@@ -52,6 +59,7 @@ class Onboarding(BaseModel):
     name_field: list[str] = Field(default_factory=list)      # label/placeholder hints
     confirm_button: list[str] = Field(default_factory=list)  # texts of the final button
     key_pattern: str = ""                                    # regex a real key matches
+    account_id_url: str = ""  # Cloudflare-style lookup that fills the base_url's ${VAR}
     note: str = ""
 
     def matches(self, key: str) -> bool:
@@ -73,11 +81,15 @@ class Provider(BaseModel):
     @property
     def missing_env(self) -> list[str]:
         """Variables referenced as ${VAR} in base_url that aren't set (e.g. an account id)."""
-        return [v for v in re.findall(r"\$\{(\w+)\}", self.base_url) if not os.getenv(v)]
+        return [v for v in self.url_vars if not _var(v)]
+
+    @property
+    def url_vars(self) -> list[str]:
+        return re.findall(r"\$\{(\w+)\}", self.base_url)
 
     @property
     def resolved_base_url(self) -> str:
-        return re.sub(r"\$\{(\w+)\}", lambda m: os.getenv(m.group(1), ""), self.base_url)
+        return re.sub(r"\$\{(\w+)\}", lambda m: _var(m.group(1)) or "", self.base_url)
 
     @property
     def api_key(self) -> str | None:

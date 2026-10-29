@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import os
 import socket
 import threading
 from collections.abc import Awaitable, Callable
@@ -34,6 +35,9 @@ Saver = Callable[[Provider, str], str]
 
 
 def default_saver(p: Provider, key: str) -> str:
+    for var in p.url_vars:  # e.g. the Cloudflare account id found while checking the key
+        if os.getenv(var):
+            set_key(var, var, os.environ[var])
     return set_key(p.name, p.key_env, key)
 
 
