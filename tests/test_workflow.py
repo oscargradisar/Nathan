@@ -90,13 +90,17 @@ async def test_quota_limit_is_not_a_no_show(make_engine):
 
 
 async def test_weak_part_is_redone_by_someone_else(make_engine):
-    calls = {"review": 0}
+    first_t2 = {}
     base = responder_for({})
 
     def responder(ref, messages, **kw):
+        text = str(messages[-1]["content"])
+        if "YOUR PART: find comfort" in text:
+            first_t2.setdefault("ref", ref)
         if "reviewer" in str(messages[0]["content"]):
-            calls["review"] += 1
-            score = 3 if calls["review"] == 1 else 8  # weak first time, fixed after the redo
+            # t2 is weak while it's still the first worker's work, fine once someone redid it
+            t2 = text.split("--- t2", 1)[1].split("---", 2)[1]
+            score = 3 if f"work by {first_t2['ref']}" in t2 else 8
             return json.dumps({"summary": "ok", "scores": {"t1": 9, "t2": score, "t3": 8}})
         return base(ref, messages, **kw)
 
@@ -108,7 +112,7 @@ async def test_weak_part_is_redone_by_someone_else(make_engine):
     first = next(e["worker"] for e in events if e["type"] == "delivered" and e["id"] == "t2")
     assert wf.worker["t2"] != first  # someone else redid it
     assert (first, 3) in wf.round_one  # and the first worker keeps its low score for Elo
-    assert calls["review"] == 2 and [e["type"] for e in events].count("final") == 2
+    assert [e["type"] for e in events].count("final") == 2  # rewritten after the redo
 
 
 async def test_slow_worker_gets_a_backup(make_engine, monkeypatch):

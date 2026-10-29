@@ -287,7 +287,10 @@ function paint(u) {
     E.model.append(`${short(u.model)} · ${provider(u.model)}`);
     if (r) E.model.append(el("span", { class: "elo" }, ` · ${r.rank} ${r.elo}`));
     if (u.delta != null) E.model.append(el("span", { class: u.delta >= 0 ? "ok-t" : "bad-t" }, ` ${u.delta >= 0 ? "+" : ""}${u.delta} Elo`));
-    if (u.backups && u.backups.length) E.model.append(el("span", { class: "elo" }, ` + ${u.backups.map(short).join(", ")} (backup)`));
+    if (u.backups && u.backups.length) {
+      const n = u.backups.length;
+      E.model.append(el("span", { class: "elo", title: u.backups.map(short).join(", ") }, ` + ${n} backup${n > 1 ? "s" : ""}`));
+    }
   }
   if (u.score != null) E.role.textContent = `${u.role} · ${u.score}/10`;
   E.log.textContent = ""; u.log.slice(-3).forEach((l) => E.log.append(el("div", {}, l)));

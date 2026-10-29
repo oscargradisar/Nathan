@@ -238,3 +238,4 @@ td .sub { color: var(--dim); font: 11.5px var(--mono); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+.md hr { border: 0; border-top: 1px solid var(--line2); margin: 1em 0; }

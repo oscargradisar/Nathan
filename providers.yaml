@@ -23,7 +23,7 @@ providers:
         tags: [reasoning, code, writing, judge, planner, tools]
         limits: {rpm: 30, rpd: 1000, tpd: 200000}
       qwen/qwen3.8-27b:
-        tags: [reasoning, code, writing, fast, tools]
+        tags: [reasoning, code, writing, fast, judge, tools]
         limits: {rpm: 30, rpd: 1000}
       openai/gpt-oss-20b:
         tags: [fast, cheap, tools]
@@ -68,10 +68,10 @@ providers:
       key_pattern: 'csk-[a-z0-9]{40,64}'
     models:
       gpt-oss-120b:
-        tags: [reasoning, code, fast, tools]
+        tags: [reasoning, code, fast, judge, tools]
         limits: {rpm: 30}
       qwen-3.8-27b:
-        tags: [reasoning, code, writing, fast]
+        tags: [reasoning, code, writing, fast, judge]
         limits: {rpm: 30}
 
   openrouter:
@@ -153,7 +153,7 @@ providers:
         tags: [writing, fast]
         limits: {}
       gpt-oss-120b:
-        tags: [reasoning, code, fast]
+        tags: [reasoning, code, fast, judge]
         limits: {}
       DeepSeek-V3.2:
         tags: [reasoning, code, writing, judge]
@@ -185,10 +185,10 @@ providers:
         tags: [writing, fast]
         limits: {}
       "@cf/openai/gpt-oss-120b":
-        tags: [reasoning, code]
+        tags: [reasoning, code, judge]
         limits: {}
       "@cf/qwen/qwen3.8-27b":
-        tags: [reasoning, code]
+        tags: [reasoning, code, judge]
         limits: {}
       "@cf/mistralai/mistral-small-3.1-24b-instruct":
         tags: [writing, fast]

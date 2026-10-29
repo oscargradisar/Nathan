@@ -22,7 +22,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from nathan.errors import RECOVERABLE, NoModelAvailable
-from nathan.jsonutil import ask_json
+from nathan.jsonutil import race_json
 from nathan.patterns import fallback
 from nathan.planner import Subtask, TaskGraph, plan
 
@@ -175,7 +175,10 @@ async def _do_task(engine, wf: Workflow, task: Subtask, emit: Emit | None,
 
 async def _write(engine, wf: Workflow, emit: Emit | None) -> None:
     assert wf.graph is not None
-    got = await hedged(engine, "writer", engine.chain(["writing", "long_context"]), [
+    # The write-up is long, so a slow model makes everyone wait: quickest of the good writers
+    good = engine.roster.candidates(["writing"])[:10]
+    writers = sorted(good, key=lambda r: engine.staff.seconds(r) or HEDGE_AFTER_S) + engine.chain(["writing"])
+    got = await hedged(engine, "writer", list(dict.fromkeys(writers)), [
         {"role": "system", "content": WRITER_SYSTEM},
         {"role": "user", "content": f"ORIGINAL REQUEST:\n{wf.prompt}\n\nHOW TO COMBINE: "
                                     f"{wf.graph.synthesis}\n\nTEAM WORK:\n{_team_work(wf)}"}],
@@ -253,11 +256,14 @@ async def run_workflow(engine, prompt: str, emit: Emit | None = None) -> Workflo
 
 async def _review(engine, wf: Workflow, emit: Emit | None) -> str | None:
     """Asked-vs-got review. Sets wf.review (None if no reviewer answered); returns the reviewer."""
-    reviewers = [r for r in engine.judges() if r != wf.writer] or engine.chain(["reasoning"])
+    # judges first, then any reasoning model: a review shouldn't fail because judges are busy
+    judges = [r for r in dict.fromkeys(engine.judges() + engine.chain(["reasoning"])) if r != wf.writer]
+    # two reviewers race; within the good judges, measured-fast ones go first
+    reviewers = sorted(judges[:8], key=lambda r: engine.staff.seconds(r) or HEDGE_AFTER_S) + judges[8:]
     await _emit(emit, {"type": "working", "id": "reviewer", "worker": reviewers[0] if reviewers else "",
                        "role": "reviewer"})
     try:
-        wf.review, reviewer = await ask_json(engine.client, reviewers[:4], [
+        wf.review, reviewer = await race_json(engine.client, reviewers[:6], [
             {"role": "system", "content": REVIEWER_SYSTEM},
             {"role": "user", "content": f"ASKED FOR:\n{wf.prompt}\n\nTEAM WORK:\n{_team_work(wf)}"
                                         f"\n\nFINAL ANSWER:\n{wf.final}"}], Review, temperature=0.2)

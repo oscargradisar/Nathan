@@ -8,6 +8,7 @@ before moving on to the next model.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from typing import Any, TypeVar
@@ -85,4 +86,23 @@ async def ask_json[T: BaseModel](client: Client, refs: list[str], messages: list
                     {"role": "user", "content": f"That was not valid. Error: {str(e)[:500]}\n"
                                                 "Reply with only the corrected JSON."},
                 ]
+    raise NoModelAvailable("no model returned valid JSON — " + "; ".join(errors))
+
+
+async def race_json[T: BaseModel](client: Client, refs: list[str], messages: list[Message],
+                                  schema: type[T], lanes: int = 2, **kwargs: Any) -> tuple[T, str]:
+    """Like ask_json, but `lanes` independent chains run at once (refs dealt round-robin) and
+    the first valid answer wins. One slow model can no longer stall the whole job."""
+    chains = [refs[i::lanes] for i in range(lanes) if refs[i::lanes]]
+    tasks = [asyncio.create_task(ask_json(client, c, messages, schema, **kwargs)) for c in chains]
+    errors: list[str] = []
+    try:
+        for next_done in asyncio.as_completed(tasks):
+            try:
+                return await next_done
+            except NoModelAvailable as e:
+                errors.append(str(e))
+    finally:
+        for t in tasks:
+            t.cancel()
     raise NoModelAvailable("no model returned valid JSON — " + "; ".join(errors))

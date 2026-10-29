@@ -106,7 +106,8 @@ export function md(src) {
       const kind = ul ? "ul" : "ol";
       if (list !== kind) { close(); out.push(`<${kind}>`); list = kind; }
       out.push(`<li>${inline((ul || ol)[1])}</li>`);
-    } else if (/^&gt;\s?/.test(line)) { flush(); close(); out.push(`<blockquote>${inline(line.replace(/^&gt;\s?/, ""))}</blockquote>`); }
+    } else if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) { flush(); close(); out.push("<hr>"); }
+    else if (/^&gt;\s?/.test(line)) { flush(); close(); out.push(`<blockquote>${inline(line.replace(/^&gt;\s?/, ""))}</blockquote>`); }
     else if (!line.trim()) { flush(); close(); }
     else { close(); para.push(line); }
   }
