@@ -73,6 +73,6 @@
       "Create"
     ],
     "key_pattern": "[A-Za-z0-9]{32}",
-    "note": ""
+    "note": "If it asks you to upgrade, pick the free Experiment plan instead (phone check, no card)"
   }
 }
