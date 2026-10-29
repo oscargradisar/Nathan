@@ -157,6 +157,9 @@ class Memory:
         args: tuple = (q, *kinds) + ((exclude_session,) if exclude_session else ()) + (k,)
         return self._rows(sql, args)
 
+    def count(self) -> int:
+        return self.db.execute("SELECT COUNT(*) FROM entries").fetchone()[0]
+
     def recent(self, n: int = 10) -> list[Entry]:
         return self._rows(
             "SELECT id, ts, session, kind, content, meta FROM entries ORDER BY id DESC LIMIT ?",

@@ -171,6 +171,7 @@ providers:
     base_url: https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/ai/v1
     key_env: CLOUDFLARE_API_KEY
     signup: https://dash.cloudflare.com/profile/api-tokens
+    models_url: https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/ai/models/search?per_page=100&task=Text%20Generation
     onboarding:
       method: manual
       key_page: https://dash.cloudflare.com/profile/api-tokens

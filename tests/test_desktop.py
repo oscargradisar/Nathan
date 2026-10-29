@@ -14,7 +14,7 @@ def test_server_starts_and_stops(tmp_path, monkeypatch):
     engine = Engine(providers, data=tmp_path)
     assert desktop.first_page(engine) == "/connect?first=1"
 
-    server, url = desktop.start_server(engine)
+    server, url = desktop.start_server(engine, self_check=False)  # no network in tests
     try:
         app = server.config.app
         app.state.last_seen = 0  # pretend the window went quiet long ago
@@ -48,6 +48,11 @@ def test_starts_without_a_console(tmp_path, monkeypatch):
     monkeypatch.setenv("NATHAN_WORKSPACE", str(tmp_path / "ws"))
     opened = []
     monkeypatch.setattr(desktop, "open_window", lambda url, home, app: opened.append(url))
+
+    async def no_roll_call(engine, http=None):  # the startup check would hit the network
+        return {"retired": [], "reinstated": [], "unchecked": []}
+
+    monkeypatch.setattr("nathan.health.roll_call", no_roll_call)
     desktop.main()
     sys.stdout.close()
     assert opened and opened[0].startswith("http://127.0.0.1:")

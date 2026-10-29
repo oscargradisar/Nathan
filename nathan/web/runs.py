@@ -28,6 +28,23 @@ from nathan.errors import RECOVERABLE, NathanError, NoModelAvailable
 from nathan.patterns.vote import Candidate, judge_messages
 
 Event = dict[str, Any]
+SWARM_MAX = 12  # swarm mode: at most this many models answer at once
+
+
+def diagnostics_report(results: list[dict], listed: dict[str, list[str]]) -> str:
+    ok = [r for r in results if r["ok"]]
+    bad = [r for r in results if not r["ok"]]
+    lines = [f"{len(ok)} of {len(results)} models answered."]
+    if ok:
+        fast = ok[0]
+        lines.append(f"Fastest: {fast['ref']} in {fast['seconds']}s.")
+    if bad:
+        lines.append("Didn't answer: " + ", ".join(f"{r['ref']} ({r['reason']})" for r in bad) + ".")
+    if listed.get("retired"):
+        lines.append("Retired (no longer offered): " + ", ".join(listed["retired"]) + ".")
+    if listed.get("reinstated"):
+        lines.append("Back on staff: " + ", ".join(listed["reinstated"]) + ".")
+    return "\n".join(lines)
 
 
 @dataclass
@@ -84,15 +101,35 @@ class RunManager:
 
     async def _execute(self, run: Run, models: list[str] | None, n: int) -> None:
         try:
-            if run.mode == "vote":
+            mode = run.mode
+            if mode == "auto":
+                from nathan.router import route
+
+                r = await route(self.engine, run.prompt)
+                mode = {"plan": "workflow"}.get(r.pattern, r.pattern)
+                run.emit({"type": "routed", "pattern": mode, "task_type": r.task_type,
+                          "reason": r.reason, "by": r.by})
+            if mode == "swarm":  # everyone who can answer, at once
+                n = len({ref.split("/")[0] for ref in self.engine.roster.candidates(None)})
+                await self._vote(run, models, max(3, min(n * 2, SWARM_MAX)), distinct=False)
+            elif mode == "vote":
                 await self._vote(run, models, n)
-            elif run.mode == "workflow":
+            elif mode == "workflow":
                 from nathan.workflow import run_workflow
 
                 run.workflow = await run_workflow(self.engine, run.prompt, run.emit)
                 run.final = run.workflow.final
+                self.engine.memory.log_exchange(run.prompt, run.final, {"mode": "workflow"})
+            elif mode == "diagnostics":
+                from nathan.health import diagnostics, roll_call
+
+                listed = await roll_call(self.engine)
+                results = await diagnostics(self.engine, run.emit)
+                run.final = diagnostics_report(results, listed)
+                run.emit({"type": "final", "text": run.final, "mode": "diagnostics",
+                          "results": results, "roll_call": listed})
             else:
-                ans = await self.engine.ask(run.prompt, mode=run.mode, models=models, n=n,
+                ans = await self.engine.ask(run.prompt, mode=mode, models=models, n=n,
                                             on_event=run.emit)
                 run.final = ans.text
                 run.emit({"type": "final", "text": ans.text, "judge": ans.judge,
@@ -107,10 +144,13 @@ class RunManager:
 
     # ---- streaming vote -----------------------------------------------------------------
 
-    async def _vote(self, run: Run, models: list[str] | None, n: int) -> None:
+    async def _vote(self, run: Run, models: list[str] | None, n: int, distinct: bool = True) -> None:
         roster = self.engine.roster
         tags = ["writing", "reasoning"]
-        refs = models or roster.pick(tags, n)
+        refs = models or (roster.pick(tags, n) if distinct else
+                          [r for r in roster.candidates(tags) + roster.candidates(None)
+                           if r][: n * 2])
+        refs = list(dict.fromkeys(refs))[:n]
         if not refs:
             raise NoModelAvailable("no models available — connect a provider first")
         spares = [r for r in roster.candidates(tags) + roster.candidates(None) if r not in refs]

@@ -177,7 +177,8 @@ class Engine:
             toolbox = default_toolbox(self.memory, self.workspace)
             chain = self.chain(tags or ["tools", "reasoning"], models)
             messages = [{"role": "system", "content": AGENT_SYSTEM}] + messages
-            r = await run_agent(self.client, chain, messages, toolbox, max_steps=max_steps)
+            r = await run_agent(self.client, chain, messages, toolbox, max_steps=max_steps,
+                                on_event=on_event)
             return Answer(r.answer, mode, r.models,
                           note="step limit reached" if r.hit_limit else "",
                           extra={"tool_calls": [f"{s.name}({s.arguments})" for s in r.tool_calls]})

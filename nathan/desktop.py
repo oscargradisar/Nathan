@@ -38,7 +38,7 @@ def free_port() -> int:
         return s.getsockname()[1]
 
 
-def start_server(engine=None, port: int | None = None):
+def start_server(engine=None, port: int | None = None, self_check: bool = True):
     """Run the web app in a daemon thread. Returns (server, url) once it is accepting."""
     import uvicorn
 
@@ -48,7 +48,7 @@ def start_server(engine=None, port: int | None = None):
 
     port = port or free_port()
     engine = engine or Engine()
-    app = create_app(engine, Hub(engine.providers, port=port))
+    app = create_app(engine, Hub(engine.providers, port=port), self_check=self_check)
     app.state.last_seen = time.monotonic()
 
     @app.middleware("http")

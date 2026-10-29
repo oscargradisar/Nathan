@@ -123,7 +123,7 @@ def parse_text_call(text: str) -> tuple[str, dict[str, Any]] | None:
 
 async def run_agent(client, chain: list[str], task: str | list[Message], toolbox: Toolbox, *,
                     max_steps: int = 8, system: str = AGENT_SYSTEM,
-                    text_mode_models: set[str] | None = None) -> AgentResult:
+                    text_mode_models: set[str] | None = None, on_event=None) -> AgentResult:
     """Run the loop. `chain` = models to try in order; a failing model hands over to the next."""
     base: list[Message] = ([{"role": "system", "content": system}, {"role": "user", "content": task}]
                            if isinstance(task, str) else list(task))
@@ -189,7 +189,23 @@ async def run_agent(client, chain: list[str], task: str | list[Message], toolbox
         for call_id, name, args in calls:
             steps.append(Step("call", name, args or "{}", call_id=call_id, model=ref))
         for call_id, name, args in calls:
+            sid = f"tool{call_counter}-{call_id}"
+            if on_event is not None:
+                await _emit(on_event, {"type": "step", "id": sid, "role": f"tool: {name}",
+                                       "status": "working", "model": ref, "text": str(args)[:300]})
             output = await toolbox.call(name, args or "{}")
             steps.append(Step("result", name, content=output, call_id=call_id, model=ref))
+            if on_event is not None:
+                await _emit(on_event, {"type": "step", "id": sid, "role": f"tool: {name}",
+                                       "status": "done", "model": ref,
+                                       "text": f"{args}\n→ {output[:600]}"})
 
     raise AssertionError("unreachable")
+
+
+async def _emit(on_event, event: dict) -> None:
+    import asyncio
+
+    out = on_event(event)
+    if asyncio.iscoroutine(out):
+        await out

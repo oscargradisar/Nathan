@@ -78,13 +78,14 @@ class Toolbox:
 
 
 def default_toolbox(memory=None, workspace=None) -> Toolbox:
-    from nathan.tools import fetch, files, python_exec
+    from nathan.tools import database, fetch, files, python_exec
 
     box = Toolbox()
     for tool in files.make_tools(workspace):
         box.add(tool)
     box.add(python_exec.make_tool(workspace))
     box.add(fetch.make_tool())
+    box.add(database.make_tool(workspace))
     if memory is not None:
         box.add(Tool("remember", "Save a fact for future sessions.",
                      params(fact=("string", "the fact to remember")), memory.remember))

@@ -32,6 +32,7 @@ from nathan.web.manual import SITES, manual_prompt
 from nathan.web.runs import RunManager
 
 STATIC = Path(__file__).parent / "static"
+RUN_MODES = (*MODES, "swarm", "diagnostics")
 ALLOWED_HOSTS = {"127.0.0.1", "localhost"}
 
 
@@ -52,8 +53,26 @@ class KeyIn(BaseModel):
     key: str
 
 
-def create_app(engine, hub: Hub | None = None) -> FastAPI:
-    app = FastAPI(title="Nathan", docs_url=None, redoc_url=None)
+def create_app(engine, hub: Hub | None = None, self_check: bool = False) -> FastAPI:
+    """self_check: at startup, ask every provider which models it still offers (free)."""
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        if self_check:
+            from nathan.health import roll_call
+
+            async def check() -> None:
+                try:
+                    app.state.roll_call = await roll_call(engine)
+                except Exception as e:  # noqa: BLE001 - a failed check must never stop the app
+                    app.state.roll_call = {"error": str(e)}
+
+            app.state.roll_call_task = asyncio.create_task(check())
+        yield
+
+    app = FastAPI(title="Nathan", docs_url=None, redoc_url=None, lifespan=lifespan)
+    app.state.roll_call = None
     runs = RunManager(engine)
     hub = hub or Hub(engine.providers)
     app.state.engine, app.state.runs, app.state.hub = engine, runs, hub
@@ -94,6 +113,34 @@ def create_app(engine, hub: Hub | None = None) -> FastAPI:
     async def leaderboard_page() -> FileResponse:
         return FileResponse(STATIC / "leaderboard.html")
 
+    @app.get("/api/status")
+    async def status() -> dict:
+        from importlib.metadata import PackageNotFoundError, version
+
+        try:
+            ver = version("nathan")
+        except PackageNotFoundError:
+            ver = "dev"
+        keyed = [p for p in engine.providers.values() if p.key_env and p.api_key]
+        free = [p for p in engine.providers.values() if not p.key_env]
+        staff = engine.roster.candidates(None)
+        total = sum(len(p.models) for p in engine.providers.values() if p.api_key)
+        return {"version": ver, "accounts": [p.name for p in keyed],
+                "gateways": [p.name for p in free], "staff_ready": len(staff),
+                "staff_total": total, "active_runs": sum(not r.finished for r in runs.runs.values()),
+                "roll_call": app.state.roll_call, "memories": engine.memory.count()}
+
+    @app.get("/api/history")
+    async def history(limit: int = 20) -> dict:
+        items = []
+        for e in engine.memory.recent(limit * 3):
+            if e.kind == "question":
+                items.append({"id": e.id, "ts": e.ts, "question": e.content,
+                              "mode": e.meta.get("mode", "")})
+            if len(items) >= limit:
+                break
+        return {"items": items}
+
     @app.get("/api/staff")
     async def staff_board() -> dict:
         latest: dict[tuple[str, str], dict] = {}  # (run, task) → that task's latest event
@@ -129,11 +176,11 @@ def create_app(engine, hub: Hub | None = None) -> FastAPI:
 
     @app.post("/api/runs")
     async def start_run(body: RunIn) -> dict:
-        if body.mode not in MODES:
-            raise HTTPException(400, f"mode must be one of {MODES}")
+        if body.mode not in RUN_MODES:
+            raise HTTPException(400, f"mode must be one of {RUN_MODES}")
         if not body.prompt.strip():
             raise HTTPException(400, "empty prompt")
-        run = runs.start(body.prompt, body.mode, body.models, max(1, min(body.n, 8)))
+        run = runs.start(body.prompt, body.mode, body.models, max(1, min(body.n, 16)))
         return {"id": run.id, "manual_prompt": manual_prompt(body.prompt), "sites": SITES}
 
     @app.get("/api/runs/{run_id}/events")
@@ -212,7 +259,7 @@ def create_app(engine, hub: Hub | None = None) -> FastAPI:
         return {"models": [{"ref": p.ref(m), "provider": p.name, "tags": spec.tags,
                             "has_key": bool(p.api_key)}
                            for p in engine.providers.values() for m, spec in p.models.items()],
-                "modes": list(MODES)}
+                "modes": list(RUN_MODES)}
 
     # ---- connect wizard -----------------------------------------------------------------
 
@@ -312,7 +359,7 @@ def serve(engine=None, host: str = "127.0.0.1", port: int = 8765, open_browser: 
 
     engine = engine or Engine()
     hub = Hub(engine.providers, port=port)
-    app = create_app(engine, hub)  # hub.loop stays None: everything runs on uvicorn's loop
+    app = create_app(engine, hub, self_check=True)  # hub.loop None: all on uvicorn's loop
     if open_browser:
         threading.Timer(1.0, lambda: webbrowser.open(f"http://{host}:{port}{path}")).start()
     uvicorn.run(app, host=host, port=port, log_level="warning")

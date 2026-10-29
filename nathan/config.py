@@ -75,6 +75,7 @@ class Provider(BaseModel):
     base_url: str
     key_env: str = ""  # empty: a free gateway that needs no account or key
     signup: str | None = None
+    models_url: str = ""  # where to list live models, if not {base_url}/models
     account_limits: Limits = Field(default_factory=Limits)
     models: dict[str, ModelSpec]
     # Set by tests or the desktop app to bypass .env lookup. Never written to disk.
