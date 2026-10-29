@@ -115,7 +115,7 @@ async function initLead() {
 async function codeBoss() {
   const { managers } = await api("/api/managers").catch(() => ({ managers: [] }));
   const lead = (await api("/api/settings").catch(() => ({ manager: "chatgpt" }))).manager;
-  const order = [lead, lead === "chatgpt" ? "claude" : "chatgpt", "gemini"];
+  const order = [lead, lead === "chatgpt" ? "claude" : "chatgpt"];
   const boss = order.map((id) => managers.find((m) => m.id === id && m.signed_in)).find(Boolean);
   $("code-boss").textContent = boss ? boss.name : "The free team's planner";
   $("code-note").textContent = boss ? `${boss.name} is managing.` : "Connect ChatGPT under Accounts to put it in charge.";

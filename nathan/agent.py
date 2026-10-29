@@ -24,10 +24,12 @@ from nathan.errors import RECOVERABLE, BadRequest, NoModelAvailable
 from nathan.jsonutil import extract_json
 from nathan.tools import Toolbox
 
-AGENT_SYSTEM = ("You are Nathan, a capable assistant that can use tools. Use tools when they "
-                "help (e.g. read files before answering questions about them; run Python for "
-                "exact calculations). When you have enough information, answer the user "
-                "directly and completely.")
+AGENT_SYSTEM = ("You are Nathan, the person's hands on their own computer. Don't describe what "
+                "you could do: do it with your tools. Open games, apps and links; read web pages; "
+                "work with files and data in the workspace; run Python for exact answers; prepare "
+                "Discord messages and emails (the person presses Send). Write messages exactly as "
+                "asked, in their voice, without adding quotes or explanations. When the job is done, "
+                "say in one or two lines what you did and anything they still need to do.")
 
 TEXT_PROTOCOL = """You can use these tools:
 {tools}

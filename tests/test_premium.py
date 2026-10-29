@@ -58,11 +58,11 @@ async def test_research_with_a_premium_manager_verifying(make_engine):
 
     events = []
     r = await run_research(engine, "What is the population of Ljubljana?", events.append,
-                           http=fake_sources(), team=[managers.CLAUDE, managers.GEMINI], ask=ask)
-    assert ("gemini", True) in asked and ("claude", True) in asked  # both searched the web
-    assert ("claude", False) in asked  # and the boss verified
+                           http=fake_sources(), team=[managers.CLAUDE, managers.CHATGPT], ask=ask)
+    assert ("chatgpt", True) in asked and ("claude", True) in asked  # both searched the web
+    assert ("chatgpt", False) in asked  # and the lead manager (ChatGPT by default) verified
     final = next(e for e in events if e["type"] == "final")
-    assert final["writer"] == "Claude" and "Sources" in final["text"] and "wikipedia.org" in final["text"]
+    assert final["writer"] == "ChatGPT" and "Sources" in final["text"] and "wikipedia.org" in final["text"]
     assert r["evidence"]
 
 

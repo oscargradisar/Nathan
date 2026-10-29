@@ -77,7 +77,6 @@ async function connect(p) {
 const ROLE_NOTE = {
   claude: "the boss: final word on reviews, verifies research",
   chatgpt: "assistant manager · runs Programming · searches the web",
-  gemini: "research director · searches with Google · runs on your free Gemini key (Google retired Pro sign-in for this tool)",
 };
 
 export async function renderManagers() {
@@ -97,11 +96,9 @@ export async function renderManagers() {
       el("div", { class: "a-info" }, `${ROLE_NOTE[m.id]} · uses your ${m.plan} plan`),
       el("div", { class: "a-actions" },
         !m.installed && el("button", { class: "go small", onclick: () => act(`/api/managers/${m.id}/install`, "installing (a minute or two)…") }, "Install"),
-        m.installed && !m.signed_in && m.id === "gemini" && el("span", { class: "muted" }, "Connect Gemini under Free staff below."),
-        m.installed && !m.signed_in && m.id !== "gemini" && el("button", { class: "go small", onclick: async () => {
+        m.installed && !m.signed_in && el("button", { class: "go small", onclick: async () => {
           await act(`/api/managers/${m.id}/signin`, "");
-          toast(m.id === "gemini" ? "A window opened: choose 'Login with Google', finish in the browser, then close it."
-            : "Your browser opened to sign in. Come back when it says you're done.", 7000);
+          toast("Your browser opened to sign in. Come back when it says you're done.", 7000);
           const until = Date.now() + 5 * 60 * 1000;
           const poll = setInterval(async () => {
             const s = (await api("/api/managers")).managers.find((x) => x.id === m.id);

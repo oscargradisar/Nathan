@@ -1,7 +1,9 @@
-"""Desktop tools: the agent can open your games, apps and websites when you ask.
+"""Desktop tools: the agent opens your games, apps and websites, and prepares messages.
 
-Deliberately narrow: it can *open* things (a Steam game by name, a Start-menu app, a
-web page). It can't type into them, delete anything, or run arbitrary commands.
+Deliberately narrow. It can *open* things (a Steam game, a Start-menu app, a web page)
+and *prepare* messages: a Discord DM typed into the box, an email filled in. You press
+Send. Discord bans accounts that send automatically ("self-bots"), so the last step is
+always yours. It can't delete anything or run arbitrary commands.
 """
 
 from __future__ import annotations
@@ -127,6 +129,89 @@ def open_link(url: str) -> str:
     return f"Opened {url} in your browser."
 
 
+# ---- messages: prepared by Nathan, sent by you -----------------------------------------
+
+def _foreground_title() -> str:
+    if sys.platform != "win32":
+        return ""
+    import ctypes
+
+    u32 = ctypes.windll.user32
+    hwnd = u32.GetForegroundWindow()
+    buf = ctypes.create_unicode_buffer(512)
+    u32.GetWindowTextW(hwnd, buf, 512)
+    return buf.value
+
+
+def _keys(*combo: str) -> None:
+    """Press a key combination (e.g. 'ctrl', 'k') on Windows."""
+    import ctypes
+
+    vk = {"ctrl": 0x11, "enter": 0x0D, "esc": 0x1B, "v": 0x56, "k": 0x4B, "a": 0x41}
+    down = [vk[k] for k in combo]
+    for code in down:
+        ctypes.windll.user32.keybd_event(code, 0, 0, 0)
+    for code in reversed(down):
+        ctypes.windll.user32.keybd_event(code, 0, 2, 0)  # 2 = key up
+
+
+def _paste(text: str) -> None:
+    import time
+
+    import pyperclip
+
+    pyperclip.copy(text)
+    time.sleep(0.15)
+    _keys("ctrl", "v")
+
+
+def copy_text(text: str) -> str:
+    import pyperclip
+
+    pyperclip.copy(text)
+    return "Copied to your clipboard."
+
+
+def discord_message(friend: str, message: str) -> str:
+    """Open the DM with `friend` in the Discord app and type `message` into the box."""
+    import time
+
+    import pyperclip
+
+    if sys.platform != "win32":
+        pyperclip.copy(message)
+        _start("discord://-/channels/@me")
+        return "Opened Discord and copied the message: open the chat, paste it, and press Enter."
+    _start("discord://-/channels/@me")
+    for _ in range(20):  # wait for Discord to come to the front
+        time.sleep(0.4)
+        if "discord" in _foreground_title().lower():
+            break
+    else:
+        pyperclip.copy(message)
+        return "Discord didn't come to the front, so I didn't type anything. The message is on your clipboard."
+    time.sleep(0.8)
+    _keys("ctrl", "k")  # Discord's quick switcher: jump to any DM, server or channel
+    time.sleep(0.6)
+    _paste(friend)
+    time.sleep(1.2)
+    if "discord" not in _foreground_title().lower():
+        pyperclip.copy(message)
+        return "Discord lost focus, so I stopped. The message is on your clipboard."
+    _keys("enter")
+    time.sleep(1.5)
+    _paste(message)
+    return (f"Opened your chat with {friend} in Discord and typed the message. "
+            "Check it's the right chat, then press Enter to send.")
+
+
+def compose_email(to: str, subject: str, body: str) -> str:
+    from urllib.parse import quote
+
+    _start(f"mailto:{quote(to, safe='@,')}?subject={quote(subject)}&body={quote(body)}")
+    return f"Opened an email to {to} in your mail app, ready to send."
+
+
 def make_tools() -> list[Tool]:
     return [
         Tool("list_games", "List installed Steam games (optionally filtered).",
@@ -137,4 +222,12 @@ def make_tools() -> list[Tool]:
              params(name=("string", "app name, e.g. 'Spotify'")), open_app),
         Tool("open_link", "Open a web page in the person's own browser.",
              params(url=("string", "http(s) URL")), open_link),
+        Tool("discord_message", "Message a friend on Discord: opens the chat in the Discord app and types "
+             "the message into the box. The person presses Enter to send.",
+             params(friend=("string", "their Discord name, e.g. 'WaiterofTables'"),
+                    message=("string", "the exact message to send")), discord_message),
+        Tool("compose_email", "Open an email in the person's mail app with recipient, subject and text filled in.",
+             params(to=("string", "email address"), subject=("string", "subject"), body=("string", "message")),
+             compose_email),
+        Tool("copy_text", "Put text on the person's clipboard.", params(text=("string", "text")), copy_text),
     ]
