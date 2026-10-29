@@ -17,7 +17,7 @@ from nathan.errors import NoModelAvailable
 from nathan.jsonutil import ask_json
 
 TaskType = Literal["chat", "factual", "code", "math", "writing", "research", "analysis"]
-Pattern = Literal["single", "race", "vote", "critique", "plan", "agent"]
+Pattern = Literal["single", "race", "vote", "critique", "plan", "agent", "research", "code"]
 
 ROUTE_TIMEOUT_S = 8.0
 
@@ -30,7 +30,7 @@ TAGS_FOR: dict[str, list[str]] = {
 
 ROUTER_SYSTEM = """You route tasks for a team of AI models. Reply with ONLY a JSON object:
 {"task_type": one of ["chat","factual","code","math","writing","research","analysis"],
- "pattern": one of ["single","race","vote","critique","plan","agent"],
+ "pattern": one of ["single","race","vote","critique","plan","agent","research","code"],
  "reason": "<10 words"}
 Patterns:
 - single: quick, simple or conversational requests.
@@ -38,7 +38,10 @@ Patterns:
 - vote: questions with one right answer where mistakes are likely (math, tricky facts, code bugs).
 - critique: a piece of writing or code that benefits from a review-and-revise pass.
 - plan: big multi-part jobs (research + write a brief/report, compare many things).
-- agent: needs files in the workspace, running Python, or fetching a web page."""
+- agent: needs files in the workspace, running Python, or fetching a web page.
+- research: factual questions that need real sources: niche facts, specifics, history, science,
+  "who/what/when/how many", anything a model might misremember. Prefer this for factual questions.
+- code: write a program, script, app or tool (not a quick snippet or a bug question)."""
 
 
 class Route(BaseModel):
@@ -60,6 +63,8 @@ def heuristic_route(question: str) -> Route:
         r = Route(task_type="analysis", pattern="agent")
     elif has("research", "brief", "report", "compare", "overview", "survey") and words > 5:
         r = Route(task_type="research", pattern="plan")
+    elif has("write a program", "build an app", "write a script", "make a tool", "create an app"):
+        r = Route(task_type="code", pattern="code")
     elif has("code", "function", "bug", "python", "javascript", "sql", "regex"):
         r = Route(task_type="code", pattern="vote")
     elif has("calculate", "solve", "how many", "probability", "equation") or re.search(r"\d+\s*[-+*/^]\s*\d+", q):
@@ -69,7 +74,7 @@ def heuristic_route(question: str) -> Route:
     elif words <= 6:
         r = Route(task_type="chat", pattern="single")
     else:
-        r = Route(task_type="factual", pattern="single")
+        r = Route(task_type="factual", pattern="research")
     r.reason = "keyword heuristic"
     r.tags = TAGS_FOR[r.task_type]
     return r

@@ -32,7 +32,7 @@ from nathan.web.manual import SITES, manual_prompt
 from nathan.web.runs import RunManager
 
 STATIC = Path(__file__).parent / "static"
-RUN_MODES = (*MODES, "swarm", "diagnostics")
+RUN_MODES = (*MODES, "swarm", "diagnostics", "review")
 ALLOWED_HOSTS = {"127.0.0.1", "localhost"}
 
 
@@ -168,6 +168,38 @@ def create_app(engine, hub: Hub | None = None, self_check: bool = False) -> Fast
         else:
             subprocess.run(["open" if sys.platform == "darwin" else "xdg-open", str(ws)], check=False)
         return {"path": str(ws)}
+
+    @app.get("/api/managers")
+    def managers_state() -> dict:  # runs the CLIs' status checks: keep it off the event loop
+        from nathan import managers
+
+        return {"managers": [managers.state(m) for m in managers.MANAGERS.values()]}
+
+    @app.post("/api/managers/{mid}/install")
+    def manager_install(mid: str) -> dict:
+        from nathan import managers
+
+        m = managers.MANAGERS.get(mid)
+        if m is None:
+            raise HTTPException(404, "unknown manager")
+        try:
+            managers.install(m)
+        except RuntimeError as e:
+            raise HTTPException(400, str(e)) from e
+        return managers.state(m)
+
+    @app.post("/api/managers/{mid}/signin")
+    def manager_signin(mid: str) -> dict:
+        from nathan import managers
+
+        m = managers.MANAGERS.get(mid)
+        if m is None:
+            raise HTTPException(404, "unknown manager")
+        try:
+            managers.open_sign_in(m)
+        except (RuntimeError, OSError) as e:
+            raise HTTPException(400, str(e)) from e
+        return {"ok": True}
 
     @app.get("/api/history")
     async def history(limit: int = 20) -> dict:

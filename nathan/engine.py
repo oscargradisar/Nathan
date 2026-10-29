@@ -22,7 +22,7 @@ from nathan.staff import START, Staff
 UNKNOWN_SPEED_S = 8.0  # assumed answer time for a model that hasn't delivered yet
 QUICK_HEDGE_S = 6.0  # quick answers: a backup starts if nothing arrives by then
 
-MODES = ("auto", "single", "race", "vote", "critique", "plan", "agent", "workflow")
+MODES = ("auto", "single", "race", "vote", "critique", "plan", "agent", "workflow", "research", "code")
 
 
 @dataclass
@@ -168,6 +168,18 @@ class Engine:
                           extra={"planner": planner_ref, "graph": graph.model_dump(),
                                  "results": {k: v.__dict__ for k, v in result.results.items()},
                                  "max_parallel": result.max_parallel})
+        if mode == "research":
+            from nathan.research import run_research
+
+            q = "\n\n".join(str(m["content"]) for m in messages if m["role"] == "user")
+            r = await run_research(self, q, on_event)
+            return Answer(r["answer"], mode, r["analysts"], extra={"queries": r["queries"]})
+        if mode == "code":
+            from nathan.code import run_code
+
+            q = "\n\n".join(str(m["content"]) for m in messages if m["role"] == "user")
+            r = await run_code(self, q, on_event)
+            return Answer(f"Saved {len(r['files'])} file(s) to {r['folder']}", mode, [], extra=r)
         if mode == "workflow":
             from nathan.workflow import run_workflow
 

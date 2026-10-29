@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import itertools
 import sqlite3
+import time
 from pathlib import Path
 
 START = 1000.0
@@ -42,6 +43,10 @@ class Staff:
             wins INTEGER NOT NULL DEFAULT 0, losses INTEGER NOT NULL DEFAULT 0,
             rated INTEGER NOT NULL DEFAULT 0, score_sum REAL NOT NULL DEFAULT 0,
             ms_sum REAL NOT NULL DEFAULT 0)""")
+        self.db.execute("""CREATE TABLE IF NOT EXISTS worklog (
+            id INTEGER PRIMARY KEY, ts REAL, ref TEXT, role TEXT, task TEXT, output TEXT)""")
+        self.db.execute("""CREATE TABLE IF NOT EXISTS verdicts (
+            ref TEXT PRIMARY KEY, ts REAL, score REAL, note TEXT, by TEXT)""")
         self.db.commit()
 
     def _ensure(self, ref: str) -> None:
@@ -78,7 +83,35 @@ class Staff:
                         " ms_sum = ms_sum + ? WHERE ref = ?", (int(ok), int(not ok), ms, ref))
         self.db.commit()
 
-    def rate(self, scores: dict[str, float]) -> dict[str, float]:
+    def log_work(self, ref: str, role: str, task: str, output: str) -> None:
+        """Keep a sample of delivered work so managers can review real output later."""
+        self.db.execute("INSERT INTO worklog (ts, ref, role, task, output) VALUES (?,?,?,?,?)",
+                        (time.time(), ref, role, task[:1500], output[:3000]))
+        self.db.execute("DELETE FROM worklog WHERE id <= (SELECT MAX(id) FROM worklog) - 400")
+        self.db.commit()
+
+    def samples(self, per_model: int = 2, models: int = 12) -> dict[str, list[dict]]:
+        """Most recent work per model, most active models first."""
+        out: dict[str, list[dict]] = {}
+        for ref, role, task, output in self.db.execute(
+                "SELECT ref, role, task, output FROM worklog ORDER BY id DESC"):
+            if ref not in out and len(out) >= models:
+                continue
+            bucket = out.setdefault(ref, [])
+            if len(bucket) < per_model:
+                bucket.append({"role": role, "task": task, "output": output})
+        return out
+
+    def set_verdict(self, ref: str, score: float, note: str, by: str) -> None:
+        self.db.execute("INSERT OR REPLACE INTO verdicts VALUES (?,?,?,?,?)",
+                        (ref, time.time(), score, note[:400], by))
+        self.db.commit()
+
+    def verdicts(self) -> dict[str, dict]:
+        return {r[0]: {"ts": r[1], "score": r[2], "note": r[3], "by": r[4]}
+                for r in self.db.execute("SELECT ref, ts, score, note, by FROM verdicts")}
+
+    def rate(self, scores: dict[str, float], k: float = K) -> dict[str, float]:
         """Apply one job's review scores (0-10 per worker). Returns each worker's Elo change."""
         for ref in scores:
             self._ensure(ref)
@@ -89,7 +122,7 @@ class Staff:
                 result = 0.5
             else:
                 result = 1.0 if scores[a] > scores[b] else 0.0
-            change = K * (result - expected(before[a], before[b]))
+            change = k * (result - expected(before[a], before[b]))
             delta[a] += change
             delta[b] -= change
         for ref, score in scores.items():
@@ -102,6 +135,7 @@ class Staff:
         return delta
 
     def board(self) -> list[dict]:
+        verdicts = self.verdicts()
         rows = self.db.execute("SELECT ref, elo, jobs, done, no_shows, wins, losses, rated, score_sum,"
                                " ms_sum FROM staff ORDER BY elo DESC, done DESC").fetchall()
         out = []
@@ -111,5 +145,6 @@ class Staff:
                         "losses": losses,
                         "avg_score": round(score_sum / rated, 1) if rated else None,
                         "avg_seconds": round(ms_sum / done / 1000, 1) if done else None,
-                        "priority": round(self.priority(ref))})
+                        "priority": round(self.priority(ref)),
+                        "verdict": verdicts.get(ref)})
         return out

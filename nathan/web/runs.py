@@ -120,6 +120,11 @@ class RunManager:
                 run.workflow = await run_workflow(self.engine, run.prompt, run.emit)
                 run.final = run.workflow.final
                 self.engine.memory.log_exchange(run.prompt, run.final, {"mode": "workflow"})
+            elif mode == "review":
+                from nathan.review import run_review
+
+                result = await run_review(self.engine, run.emit)
+                run.final = result["report"]
             elif mode == "diagnostics":
                 from nathan.health import diagnostics, roll_call
 
