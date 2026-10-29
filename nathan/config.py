@@ -60,6 +60,7 @@ class Onboarding(BaseModel):
     confirm_button: list[str] = Field(default_factory=list)  # texts of the final button
     key_pattern: str = ""                                    # regex a real key matches
     account_id_url: str = ""  # Cloudflare-style lookup that fills the base_url's ${VAR}
+    check_url: str = ""  # where to test a key, if not {base_url}/models
     note: str = ""
 
     def matches(self, key: str) -> bool:

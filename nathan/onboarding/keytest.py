@@ -20,7 +20,9 @@ async def check_key(provider: Provider, key: str, client: httpx.AsyncClient | No
         if provider.missing_env:
             return False, (f"{provider.name} also needs your account id "
                            f"({', '.join(provider.missing_env)}) and this key couldn't look it up")
-        resp = await client.get(provider.resolved_base_url.rstrip("/") + "/models",
+        url = (provider.onboarding and provider.onboarding.check_url) or (
+            provider.resolved_base_url.rstrip("/") + "/models")
+        resp = await client.get(url,
                                 headers={"Authorization": f"Bearer {key}"})
     except httpx.HTTPError as e:
         return False, f"could not reach {provider.name}: {type(e).__name__}"

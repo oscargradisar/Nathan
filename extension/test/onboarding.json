@@ -17,6 +17,7 @@
     ],
     "key_pattern": "gsk_[A-Za-z0-9]{40,64}",
     "account_id_url": "",
+    "check_url": "",
     "note": ""
   },
   "gemini": {
@@ -37,6 +38,7 @@
     ],
     "key_pattern": "AIza[0-9A-Za-z_\\-]{35}",
     "account_id_url": "",
+    "check_url": "",
     "note": ""
   },
   "cerebras": {
@@ -57,6 +59,7 @@
     ],
     "key_pattern": "csk-[a-z0-9]{40,64}",
     "account_id_url": "",
+    "check_url": "",
     "note": ""
   },
   "mistral": {
@@ -77,6 +80,7 @@
     ],
     "key_pattern": "[A-Za-z0-9]{32}",
     "account_id_url": "",
+    "check_url": "",
     "note": "If it asks you to upgrade, pick the free Experiment plan instead (phone check, no card)"
   }
 }
