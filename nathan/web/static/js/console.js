@@ -7,6 +7,7 @@ import { doubleStrike, strike } from "./fx.js";
 
 export const MODES = [
   { id: "auto", label: "Auto", help: "Nathan decides: a quick model for small things, the whole company for big ones." },
+  { id: "autopilot", label: "Autopilot", help: "Give Nathan a goal. It plans, researches, opens things, drives the globe and prepares messages by itself, up to 20 steps." },
   { id: "single", label: "Quick", help: "One fast model. For when you just need an answer." },
   { id: "research", label: "Research", help: "Searches Wikipedia, papers, forums and the web, then several models answer from the sources with citations and a verifier cross-checks." },
   { id: "workflow", label: "Workflow", help: "A manager splits it into parts, workers do them in parallel, a writer joins them, a reviewer checks." },
@@ -160,6 +161,7 @@ function handle(ev) {
   const role = ev.type === "working" || (ev.type === "step" && ev.status === "working") ? ev.role : null;
   if (role && DOING[role]) { $("core-big").textContent = DOING[role]; $("core-small").textContent = short(ev.worker || ev.model); }
   else if (role && role.startsWith("tool")) { $("core-big").textContent = "USING TOOLS"; $("core-small").textContent = role.slice(6); }
+  if (ev.type === "step" && ev.status === "done" && ev.role === "tool: world_view") setTimeout(() => { location.hash = "#world"; }, 400);
   switch (ev.type) {
     case "routed": {
       const r = $("route"); r.hidden = false;

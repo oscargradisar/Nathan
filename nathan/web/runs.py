@@ -106,7 +106,7 @@ class RunManager:
                 from nathan.router import route
 
                 r = await route(self.engine, run.prompt)
-                mode = {"plan": "workflow"}.get(r.pattern, r.pattern)
+                mode = {"plan": "workflow", "agent": "autopilot"}.get(r.pattern, r.pattern)
                 run.emit({"type": "routed", "pattern": mode, "task_type": r.task_type,
                           "reason": r.reason, "by": r.by})
             if mode == "swarm":  # everyone who can answer, at once

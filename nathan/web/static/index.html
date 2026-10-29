@@ -9,6 +9,12 @@
 </head>
 <body>
 <div class="scan" aria-hidden="true"></div>
+<div id="boot" class="boot" aria-hidden="true">
+  <svg class="boot-glyph" viewBox="0 0 32 32"><circle cx="16" cy="16" r="13" /><circle cx="16" cy="16" r="5" /><path d="M16 3v6M16 23v6M3 16h6M23 16h6" /></svg>
+  <div class="boot-name">NATHAN</div>
+  <div class="boot-log"></div>
+  <div class="boot-hint">click to skip · F11 leaves fullscreen</div>
+</div>
 
 <header class="top">
   <div class="brand">
@@ -31,6 +37,7 @@
 
 <nav class="rail" aria-label="Sections">
   <a href="#console" data-view="console"><b>◎</b><span>Console</span></a>
+  <a href="#world" data-view="world"><b>◍</b><span>World</span></a>
   <a href="#code" data-view="code"><b>⌘</b><span>Code</span></a>
   <a href="#staff" data-view="staff"><b>▲</b><span>Staff</span></a>
   <a href="#accounts" data-view="accounts"><b>⚿</b><span>Accounts</span></a>
@@ -112,6 +119,19 @@
           <div id="duty" class="duty"></div>
         </div>
       </aside>
+    </div>
+  </section>
+
+  <!-- WORLD -->
+  <section class="view world-view" id="view-world" aria-label="World view" hidden>
+    <div id="globe" class="globe"></div>
+    <div class="w-hud panel">
+      <header><h2>World view</h2></header>
+      <form id="w-form" class="row"><input id="w-place" placeholder="Fly to… (a city, a country, an address)" aria-label="Fly to a place"><button class="go small">GO</button></form>
+      <div id="w-layers" class="w-layers"></div>
+      <div id="w-count" class="muted w-count"></div>
+      <div id="w-read" class="w-read">Ask Nathan "show me planes over Tokyo", or fly there yourself.</div>
+      <p class="muted w-src">Open data: OpenSky (aircraft), USGS (earthquakes), wheretheiss.at, OpenStreetMap.</p>
     </div>
   </section>
 

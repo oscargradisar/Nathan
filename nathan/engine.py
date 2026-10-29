@@ -22,7 +22,7 @@ from nathan.staff import START, Staff
 UNKNOWN_SPEED_S = 8.0  # assumed answer time for a model that hasn't delivered yet
 QUICK_HEDGE_S = 6.0  # quick answers: a backup starts if nothing arrives by then
 
-MODES = ("auto", "single", "race", "vote", "critique", "plan", "agent", "workflow", "research", "code")
+MODES = ("auto", "single", "race", "vote", "critique", "plan", "agent", "workflow", "research", "code", "autopilot")
 
 
 @dataclass
@@ -113,6 +113,8 @@ class Engine:
                    extra: list[Candidate] | None = None, **kwargs: Any) -> Answer:
         on_event = kwargs.pop("on_event", None)  # progress callback (web UI), not for the API
         max_steps = kwargs.pop("max_steps", 8)  # agent step limit
+        if mode == "autopilot":  # the agent with a long leash: plans, researches and acts by itself
+            mode, max_steps = "agent", 20
         if mode == "single":
             from nathan.workflow import hedged
 
@@ -193,7 +195,7 @@ class Engine:
 
             question_text = "\n\n".join(str(m["content"]) for m in messages if m["role"] == "user")
             r = await route(self, question_text)
-            pattern = "workflow" if r.pattern == "plan" else r.pattern  # workflow = plan + review
+            pattern = {"plan": "workflow", "agent": "autopilot"}.get(r.pattern, r.pattern)
             await _emit(on_event, {"type": "routed", "pattern": pattern, "task_type": r.task_type,
                                    "reason": r.reason, "by": r.by})
             ans = await self._run(messages, mode=pattern, models=models, n=n,
@@ -206,7 +208,7 @@ class Engine:
             from nathan.agent import AGENT_SYSTEM, run_agent
             from nathan.tools import default_toolbox
 
-            toolbox = default_toolbox(self.memory, self.workspace)
+            toolbox = default_toolbox(self.memory, self.workspace, self)
             chain = self.chain(tags or ["tools", "reasoning"], models)
             messages = [{"role": "system", "content": AGENT_SYSTEM}] + messages
             r = await run_agent(self.client, chain, messages, toolbox, max_steps=max_steps,

@@ -26,11 +26,14 @@ from nathan.errors import RECOVERABLE, NoModelAvailable
 from nathan.jsonutil import extract_json, race_json
 from nathan.patterns import fallback
 from nathan.planner import Subtask, TaskGraph, plan
+from nathan.staff import START
 
 Emit = Callable[[dict[str, Any]], Awaitable[None] | None]
 MAX_TRIES = 5  # workers tried per task before giving up on it
 HEDGE_AFTER_S = 20.0  # no delivery after this long: a backup worker starts on the same part
-REDO_BELOW = 5  # parts the reviewer scores below this get redone once by someone else
+BENCH_BELOW = 150  # pick score this far under a new model's: benched (slow or unreliable)
+REDO_BELOW = 5
+SLOW_SCORE = 2.0  # what a worker scores when a backup had to finish its part  # parts the reviewer scores below this get redone once by someone else
 
 WORKER_SYSTEM = ("You are one worker on a team of AI models. Do ONLY the part you are given, "
                  "thoroughly and factually. Say plainly if you are unsure of a fact.")
@@ -67,7 +70,8 @@ class Workflow:
     writer: str = ""
     review: Review | None = None
     round_one: list[tuple[str, float]] = field(default_factory=list)
-    team: list = field(default_factory=list)  # signed-in premium managers  # (worker, score) of redone parts
+    team: list = field(default_factory=list)  # signed-in premium managers
+    slow: list[str] = field(default_factory=list)  # workers that needed a backup to cover them  # (worker, score) of redone parts
 
 
 async def _emit(emit: Emit | None, event: dict[str, Any]) -> None:
@@ -85,6 +89,8 @@ def assign(engine, graph: TaskGraph) -> dict[str, str]:
         busy: set[str] = set()
         for task in wave:
             fits = engine.roster.candidates(task.tags or None)[:12] or engine.roster.candidates(None)
+            starters = [r for r in fits if engine.staff.priority(r) >= START - BENCH_BELOW]
+            fits = starters or fits  # the bench only plays when nobody better is free
             if not fits:
                 raise NoModelAvailable("no workers available: connect a provider first")
             fits.sort(key=lambda r: -engine.staff.priority(r))
@@ -106,7 +112,7 @@ def _worker_messages(wf: Workflow, task: Subtask) -> list:
 
 async def hedged(engine, unit: str, chain: list[str], messages: list, emit: Emit | None,
                  no_shows: list[str] | None = None, role: str = "worker",
-                 hedge_after: float | None = None):
+                 hedge_after: float | None = None, slow: list[str] | None = None):
     """Run one job on the first worker in `chain`. If it hasn't delivered after HEDGE_AFTER_S,
     a backup starts on the same job and whoever finishes first wins (the slow one is cancelled,
     no penalty: slow isn't absent). Failures hand over to the next worker.
@@ -133,10 +139,12 @@ async def hedged(engine, unit: str, chain: list[str], messages: list, emit: Emit
             done, _ = await asyncio.wait(running, timeout=wait if hedge else None,
                                          return_when=asyncio.FIRST_COMPLETED)
             if not done:  # slow, not dead: bring in a backup alongside, the quickest we have
-                slow = next(iter(running.values()))[0]
+                laggard = next(iter(running.values()))[0]
+                if slow is not None:
+                    slow.append(laggard)
                 speed = engine.staff.seconds
                 chain[nxt:] = sorted(chain[nxt:], key=lambda r: speed(r) or HEDGE_AFTER_S)
-                await launch({"type": "backup", "for": slow})
+                await launch({"type": "backup", "for": laggard})
                 continue
             for t in done:
                 ref, start = running.pop(t)
@@ -172,7 +180,8 @@ async def _do_task(engine, wf: Workflow, task: Subtask, emit: Emit | None,
     first = wf.assigned[task.id]
     chain = [first] + [r for r in engine.chain(task.tags or None) if r != first and r not in avoid]
     wf.no_shows.setdefault(task.id, [])
-    got = await hedged(engine, task.id, chain, _worker_messages(wf, task), emit, wf.no_shows[task.id])
+    got = await hedged(engine, task.id, chain, _worker_messages(wf, task), emit, wf.no_shows[task.id],
+                       slow=wf.slow)
     if got:
         wf.worker[task.id], wf.results[task.id] = got[0], got[1].text
 
@@ -301,6 +310,9 @@ def score_workers(wf: Workflow) -> dict[str, float]:
         got.setdefault(ref, []).append(max(0.0, min(10.0, wf.review.scores.get(tid, 5.0))))
     for ref, score in wf.round_one:
         got.setdefault(ref, []).append(score)
+    for ref in wf.slow:  # too slow to finish before a backup did: punished like a poor part
+        if ref not in wf.worker.values():
+            got.setdefault(ref, []).append(SLOW_SCORE)
     for refs in wf.no_shows.values():
         for ref in refs:
             got.setdefault(ref, []).append(0.0)

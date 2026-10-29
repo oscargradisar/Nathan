@@ -7,8 +7,10 @@ import { initSystemsControls, renderAccounts, renderHistory, renderManagers, ren
 import { setVoice, voiceOn } from "./voice.js";
 import { lightningOn, setLightning, strike } from "./fx.js";
 import { initMorphy } from "./morphy.js";
+import { boot as bootScreen } from "./boot.js";
+import { openWorld } from "./world.js";
 
-const VIEWS = ["console", "code", "staff", "accounts", "history", "systems"];
+const VIEWS = ["console", "world", "code", "staff", "accounts", "history", "systems"];
 let status = null;
 
 // Old page addresses (/connect, /workflow, /leaderboard) land on the matching view.
@@ -22,6 +24,7 @@ function show() {
   if (name === "staff") refreshStaff();
   if (name === "accounts") { renderManagers(); renderAccounts(); }
   if (name === "code") { renderProjects(); codeBoss(); }
+  if (name === "world") openWorld();
   if (name === "history") { renderPrayers(); renderHistory((q) => ask(q)); }
   if (name === "systems") refreshStatus().then(() => renderSystems(status));
   if (name === "console") setTimeout(() => $("prompt").focus(), 0);
@@ -55,7 +58,9 @@ async function boot() {
   initMorphy();
   initLead();
   await refreshStatus().catch(() => null);
+  const booting = bootScreen(status);
   await refreshStaff().catch(() => null);
+  await booting;
   initConsole(status ? status.staff_ready : "several");
   onRunFinished(() => { refreshStaff(); refreshStatus(); });
   initSystemsControls();
@@ -94,7 +99,7 @@ async function boot() {
   document.addEventListener("keydown", (e) => {
     const typing = /INPUT|TEXTAREA/.test(document.activeElement?.tagName || "");
     if (e.key === "/" && !typing) { e.preventDefault(); location.hash = "#console"; $("prompt").focus(); }
-    if (e.altKey && /^[1-6]$/.test(e.key)) { e.preventDefault(); location.hash = "#" + VIEWS[Number(e.key) - 1]; }
+    if (e.altKey && /^[1-7]$/.test(e.key)) { e.preventDefault(); location.hash = "#" + VIEWS[Number(e.key) - 1]; }
   });
   if (store.get("seen-tips", false) === false) {
     log("Tips: / focuses the command bar · Alt+1…6 switches sections · Shift+Enter adds a line.", "sys");

@@ -86,7 +86,7 @@ def open_window(url: str, home: Path, app) -> None:
         # Edge may hand the window to another of its processes, so instead of waiting on the
         # process we treat "the page stopped polling" as "the window was closed".
         subprocess.Popen([edge, f"--app={url}", f"--user-data-dir={home / 'window'}",
-                          "--no-first-run", "--window-size=1280,860"])
+                          "--no-first-run", "--start-fullscreen"])  # F11 leaves fullscreen
         while time.monotonic() - app.state.last_seen < IDLE_QUIT_S:
             time.sleep(2)
         return

@@ -61,7 +61,7 @@ def heuristic_route(question: str) -> Route:
     def has(*keys: str) -> bool:
         return any(re.search(rf"\b{k}", q) for k in keys)
 
-    if re.match(r"^\s*(please\s+|can you\s+|could you\s+)?(open|launch|start|play|run|message|text|dm|send|email|tell)\b", q) or has(
+    if re.match(r"^\s*(please\s+|can you\s+|could you\s+)?(open|launch|start|play|run|message|text|dm|send|email|tell|show me|fly to|zoom)\b", q) or has(
             "file", "folder", "workspace", "run python", "execute", "fetch", "http", "url"):
         r = Route(task_type="analysis", pattern="agent")
     elif has("research", "brief", "report", "compare", "overview", "survey") and words > 5:

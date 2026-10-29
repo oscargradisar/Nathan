@@ -48,6 +48,11 @@ class ManualIn(BaseModel):
     text: str
 
 
+class GlobeIn(BaseModel):
+    place: str
+    layers: list[str] = []
+
+
 class SettingsIn(BaseModel):
     manager: str
 
@@ -255,6 +260,35 @@ def create_app(engine, hub: Hub | None = None, self_check: bool = False) -> Fast
         return {"prayers": [{"ts": e.ts, "text": e.content, "prompt": e.meta.get("prompt", ""),
                              "answered": e.meta.get("prompt") in answered}
                             for e in rows if e.kind == "prayer"]}
+
+    @app.get("/api/globe/focus")
+    async def globe_focus() -> dict:
+        from nathan import globe
+
+        return globe.focus
+
+    @app.post("/api/globe/focus")
+    async def globe_point(body: GlobeIn) -> dict:
+        from nathan import globe
+
+        return {"summary": await globe.point(body.place, body.layers), "focus": globe.focus}
+
+    @app.get("/api/globe/{layer}")
+    async def globe_layer(layer: str, lat: float = 0, lon: float = 0, kind: str = "") -> dict:
+        from nathan import globe
+
+        try:
+            if layer == "planes":
+                return {"items": await globe.planes(lat, lon)}
+            if layer == "quakes":
+                return {"items": await globe.quakes()}
+            if layer == "iss":
+                return {"items": [await globe.iss()]}
+            if layer == "shops":
+                return {"items": await globe.shops(lat, lon, kind)}
+        except Exception as e:  # noqa: BLE001 - a slow public API shouldn't break the page
+            return {"items": [], "error": f"{layer} didn't load ({type(e).__name__})"}
+        raise HTTPException(404, "unknown layer")
 
     @app.get("/api/history")
     async def history(limit: int = 20) -> dict:

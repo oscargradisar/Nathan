@@ -77,7 +77,7 @@ class Toolbox:
         return text
 
 
-def default_toolbox(memory=None, workspace=None) -> Toolbox:
+def default_toolbox(memory=None, workspace=None, engine=None) -> Toolbox:
     from nathan.tools import database, desktop, fetch, files, python_exec
 
     box = Toolbox()
@@ -88,6 +88,24 @@ def default_toolbox(memory=None, workspace=None) -> Toolbox:
     box.add(database.make_tool(workspace))
     for tool in desktop.make_tools():
         box.add(tool)
+
+    async def world(place: str, layers: str = "planes") -> str:
+        from nathan import globe
+
+        return await globe.point(place, [x.strip() for x in layers.split(",")])
+
+    box.add(Tool("world_view", "Fly Nathan's globe (the World view) to a place and show live layers: "
+                 "planes, quakes, iss, shops (comma-separated). Returns what's there.",
+                 params(["place"], place=("string", "a place name"), layers=("string", "e.g. 'planes,shops'")), world))
+    if engine is not None:
+        async def research(question: str) -> str:
+            from nathan.research import run_research
+
+            return (await run_research(engine, question))["answer"]
+
+        box.add(Tool("research", "Research a question properly: searches the web and many sources, several "
+                     "models cross-check, returns a cited answer. Use for facts you aren't sure of.",
+                     params(question=("string", "the question")), research))
     if memory is not None:
         box.add(Tool("remember", "Save a fact for future sessions.",
                      params(fact=("string", "the fact to remember")), memory.remember))

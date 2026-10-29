@@ -29,7 +29,8 @@ AGENT_SYSTEM = ("You are Nathan, the person's hands on their own computer. Don't
                 "work with files and data in the workspace; run Python for exact answers; prepare "
                 "Discord messages and emails (the person presses Send). Write messages exactly as "
                 "asked, in their voice, without adding quotes or explanations. When the job is done, "
-                "say in one or two lines what you did and anything they still need to do.")
+                "say in one or two lines what you did and anything they still need to do. For big goals, "
+                "work step by step: research what you need, act, check the result, continue.")
 
 TEXT_PROTOCOL = """You can use these tools:
 {tools}

@@ -32,6 +32,8 @@ Reply with ONLY JSON:
 {{"summary": "2-3 sentences about the team",
   "ranking": [{{"worker": "A", "score": 8, "note": "one sentence"}}]}}
 Scores are 1-10. Rank best first. Include every worker.
+Speed matters: the team waits for the slowest worker. Punish workers that are slow (much above
+20s per job) or unreliable (no-shows) unless their work is clearly better; they get benched.
 Note: each TASK is shown as a short excerpt, so evidence the workers were given may be cut off.
 Don't penalise citations to sources you can't see; judge the answer itself.
 
@@ -57,10 +59,16 @@ async def _emit(emit: Emit | None, event: dict[str, Any]) -> None:
             await out
 
 
-def packet(samples: dict[str, list[dict]]) -> tuple[str, dict[str, str]]:
-    """Anonymised work samples and the letter → model mapping."""
+def packet(samples: dict[str, list[dict]], staff=None) -> tuple[str, dict[str, str]]:
+    """Anonymised work samples (with each worker's speed record) and the letter → model mapping."""
     letters = dict(zip(string.ascii_uppercase, samples, strict=False))
     parts = []
+    if staff is not None:
+        rows = {r["ref"]: r for r in staff.board()}
+        lines = [f"WORKER {k}: avg {rows.get(v, {}).get('avg_seconds') or '?'}s per job, "
+                 f"{rows.get(v, {}).get('no_shows', 0)} no-shows, {rows.get(v, {}).get('done', 0)} jobs done"
+                 for k, v in letters.items()]
+        parts.append("=== SPEED AND RELIABILITY ===\n" + "\n".join(lines))
     for letter, ref in letters.items():
         for i, s in enumerate(samples[ref], 1):
             parts.append(f"=== WORKER {letter} · sample {i} ({s['role']}) ===\nTASK: {s['task'][:700]}"
@@ -86,7 +94,7 @@ async def run_review(engine, emit: Emit | None = None, ask=managers.ask,
     samples = engine.staff.samples()
     if len(samples) < 2:
         raise RuntimeError("Not enough work to review yet: run a few workflows or research questions first.")
-    text, letters = packet(samples)
+    text, letters = packet(samples, engine.staff)
     await _emit(emit, {"type": "phase", "phase": "reviewing"})
 
     draft, verdict, by = "", None, ""
