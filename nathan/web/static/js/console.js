@@ -24,6 +24,24 @@ let contributors = new Set();
 let onFinish = () => {};
 
 export function setStaff(rows) { elo = Object.fromEntries(rows.map((r) => [r.ref, r])); }
+
+// The jobsite between jobs: idle staff chatter (templates; costs nothing).
+const IDLE = [
+  "{a} is reorganising its embeddings. Again.", "{a} asked for a raise. Denied: it's free.",
+  "{a} and {b} are arguing about tabs versus spaces.", "{a} claims it would have won the last job. It did not take part.",
+  "{a} is stretching its context window.", "{a} has started a union. Membership: {a}.",
+  "{a} is practising its confidence, which was never the problem.", "{b} filed a complaint about {a}'s latency.",
+  "{a} is studying Morphy's games. Losing, mostly.", "{a} rated itself 10/10 in the self-review nobody asked for.",
+  "{a} is pinging {b} to see if it's alive. Unclear.", "{a} hallucinated a lunch break.",
+];
+function idleChatter() {
+  if (document.body.classList.contains("busy") || document.hidden) return;
+  const names = Object.keys(elo).map(short);
+  if (names.length < 2) return;
+  const a = names[Math.floor(Math.random() * names.length)];
+  let b = a; while (b === a) b = names[Math.floor(Math.random() * names.length)];
+  log(IDLE[Math.floor(Math.random() * IDLE.length)].replaceAll("{a}", a).replaceAll("{b}", b), "quip");
+}
 export function onRunFinished(fn) { onFinish = fn; }
 
 export function log(text, tone = "sys") {
@@ -69,6 +87,7 @@ export function initConsole(staffCount) {
   document.body.classList.add("idle");
   say_(boot(staffCount));
   setInterval(tickTimers, 1000);
+  (function chatter() { setTimeout(() => { idleChatter(); chatter(); }, 45000 + Math.random() * 45000); })();
 }
 
 function setMode(id, quiet = false) {

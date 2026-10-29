@@ -38,7 +38,8 @@ Patterns:
 - vote: questions with one right answer where mistakes are likely (math, tricky facts, code bugs).
 - critique: a piece of writing or code that benefits from a review-and-revise pass.
 - plan: big multi-part jobs (research + write a brief/report, compare many things).
-- agent: needs files in the workspace, running Python, or fetching a web page.
+- agent: needs files in the workspace, running Python, fetching a web page, or doing something on
+  this computer: opening/launching a game, app or website ("open Rhythia", "play Terraria").
 - research: factual questions that need real sources: niche facts, specifics, history, science,
   "who/what/when/how many", anything a model might misremember. Prefer this for factual questions.
 - code: write a program, script, app or tool (not a quick snippet or a bug question)."""
@@ -59,7 +60,8 @@ def heuristic_route(question: str) -> Route:
     def has(*keys: str) -> bool:
         return any(re.search(rf"\b{k}", q) for k in keys)
 
-    if has("file", "folder", "workspace", "run python", "execute", "fetch", "http", "url"):
+    if re.match(r"^\s*(please\s+)?(open|launch|start|play|run)\b", q) or has(
+            "file", "folder", "workspace", "run python", "execute", "fetch", "http", "url"):
         r = Route(task_type="analysis", pattern="agent")
     elif has("research", "brief", "report", "compare", "overview", "survey") and words > 5:
         r = Route(task_type="research", pattern="plan")

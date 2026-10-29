@@ -30,7 +30,7 @@ from pydantic import BaseModel, Field
 
 from nathan.errors import NoModelAvailable
 from nathan.jsonutil import race_json
-from nathan.tools.fetch import html_to_text
+from nathan.tools.fetch import html_to_text, links, read_page, read_page_html
 
 Emit = Callable[[dict[str, Any]], Awaitable[None] | None]
 # Wikimedia rejects clients whose User-Agent lacks a real https:// contact URL
@@ -39,11 +39,13 @@ SNIPPET = 1800        # characters of text kept per source item
 MAX_EVIDENCE = 16     # items handed to the analysts
 ANALYSTS = 4
 PREMIUM_TIMEOUT_S = 180.0  # a premium researcher that takes longer is left out
-SOURCE_BUDGET_S = 15.0  # a source that takes longer keeps what it found so far
+SOURCE_BUDGET_S = 25.0  # rendered pages take a few seconds each  # a source that takes longer keeps what it found so far
 
 SCOUT_SYSTEM = """You plan web research. Turn the question into 2-4 short search queries
 (keywords, not sentences) that would find the answer in Wikipedia, papers or forums.
-Reply with ONLY JSON: {"queries": ["...", "..."]}"""
+Also list up to 3 exact web pages likely to hold the live answer (official sites,
+leaderboards, rankings, docs, stats pages) if you know their addresses.
+Reply with ONLY JSON: {"queries": ["...", "..."], "urls": ["https://..."]}"""
 
 ANALYST_SYSTEM = """You are a research analyst. Answer the question using the numbered
 EVIDENCE below. Cite every factual claim like [3]. If the evidence doesn't cover something,
@@ -54,12 +56,15 @@ VERIFIER_SYSTEM = """You are the verifier. Several analysts answered the same qu
 the same numbered EVIDENCE. Write the final answer:
 - Keep only claims supported by the evidence or agreed by several analysts; cite them like [2].
 - Where analysts disagree, say so and say which the evidence supports.
+- Analysts marked "searched the web itself" read live pages you can't see. For current facts
+  (rankings, prices, who holds a title now), agreement between them is strong evidence.
 - End with a line "Confidence: high|medium|low — <why>".
 Answer the person directly; don't mention analysts."""
 
 
 class Queries(BaseModel):
     queries: list[str] = Field(default_factory=list)
+    urls: list[str] = Field(default_factory=list)
 
 
 @dataclass
@@ -130,12 +135,8 @@ async def marginalia(http, q: str) -> list[tuple[str, str, str]]:
     out = []
     for r in j.get("results", [])[:3]:
         text = r.get("description", "")
-        try:
-            page = await http.get(r["url"], follow_redirects=True)
-            if "html" in page.headers.get("content-type", ""):
-                text = passages(html_to_text(page.text[:400_000]), q) or text
-        except httpx.HTTPError:
-            pass
+        _, page = await read_page(r["url"], http)
+        text = passages(page, q) or text
         if text:
             out.append((r.get("title") or r["url"], r["url"], text))
     return out
@@ -190,12 +191,8 @@ async def hackernews(http, q: str) -> list[tuple[str, str, str]]:
         url = h.get("url") or f"https://news.ycombinator.com/item?id={h.get('objectID')}"
         text = h.get("story_text") or ""
         if h.get("url"):  # read the linked page itself: that's where the facts are
-            try:
-                page = await http.get(h["url"], follow_redirects=True)
-                if "html" in page.headers.get("content-type", ""):
-                    text = passages(html_to_text(page.text[:400_000]), q)
-            except httpx.HTTPError:
-                pass
+            _, page = await read_page(h["url"], http)
+            text = passages(page, q) or text
         if text:
             out.append((h.get("title") or url, url, text))
     return out
@@ -206,10 +203,31 @@ SOURCES = {"Wikipedia": wikipedia, "Web (Marginalia)": marginalia, "DuckDuckGo":
 
 
 async def gather_evidence(queries: list[str], emit: Emit | None = None,
-                          http: httpx.AsyncClient | None = None) -> list[Evidence]:
+                          http: httpx.AsyncClient | None = None, urls: list[str] | None = None,
+                          question: str = "") -> list[Evidence]:
     own = http is None
     http = http or httpx.AsyncClient(timeout=12, headers=UA, follow_redirects=True)
     found: dict[str, list[tuple[str, str, str]]] = {}
+    sources = dict(SOURCES)
+    if urls:
+        async def pages(_http, _q, _urls=tuple(urls)) -> list[tuple[str, str, str]]:
+            if _q != queries[0]:
+                return []  # read each page once, not once per query
+            terms = {w for w in re.findall(r"\w+", " ".join(queries).lower()) if len(w) > 3}
+            first = await asyncio.gather(*(read_page_html(u, _http) for u in _urls))
+            follow: list[str] = []
+            for u, (_, text, raw) in zip(_urls, first, strict=True):
+                if len(text) < 1500:  # thin page (a menu): follow on-site links that match the question
+                    host = u.split("/")[2] if "//" in u else ""
+                    follow += [h for h, label in links(raw, u) if host in h and h not in _urls and h not in follow
+                               and any(t in (h + " " + label).lower() for t in terms)][:2]
+            follow = follow[:3]
+            second = await asyncio.gather(*(read_page_html(u, _http) for u in follow))
+            # live pages keep their top: ranking tables hold names and numbers, not query words
+            return [(u.split("//", 1)[-1][:80], u, text[:SNIPPET * 3])
+                    for u, (_, text, _raw) in zip(list(_urls) + follow, list(first) + list(second), strict=True)
+                    if len(text) > 200]
+        sources = {"Live pages": pages, **sources}
 
     async def one(name: str) -> None:
         await _emit(emit, {"type": "working", "id": "src:" + name, "worker": name, "role": "source"})
@@ -217,7 +235,7 @@ async def gather_evidence(queries: list[str], emit: Emit | None = None,
 
         async def search(q: str) -> None:
             try:
-                items.extend(await SOURCES[name](http, q))
+                items.extend(await sources[name](http, q))
             except (httpx.HTTPError, ValueError, ET.ParseError, KeyError):
                 pass  # one source failing must not sink the research
 
@@ -233,7 +251,7 @@ async def gather_evidence(queries: list[str], emit: Emit | None = None,
                            **({} if items else {"reason": "nothing found"})})
 
     try:
-        await asyncio.gather(*(one(n) for n in SOURCES))
+        await asyncio.gather(*(one(n) for n in sources))
     finally:
         if own:
             await http.aclose()
@@ -241,9 +259,15 @@ async def gather_evidence(queries: list[str], emit: Emit | None = None,
     # across sources so one chatty source can't crowd out the rest
     terms = {w for w in re.findall(r"\w+", " ".join(queries).lower()) if len(w) > 3}
     need = min(2, len(terms))
+    # names the question is about ("Rhythia"): evidence must mention one of them
+    names = {w.lower() for w in re.findall(r"(?<!^)(?<![.?!]\s)\b[A-Z][a-zA-Z0-9]{2,}", question or "")}
 
     def relevant(item: tuple[str, str, str]) -> bool:
+        if item[1] in (urls or []):
+            return True  # pages the scout picked on purpose always count
         blob = (item[0] + " " + item[2]).lower()
+        if names and not any(n in blob for n in names):
+            return False
         return sum(t in blob for t in terms) >= need
 
     found = {name: [i for i in items if relevant(i)] for name, items in found.items()}
@@ -307,14 +331,15 @@ async def run_research(engine, question: str, emit: Emit | None = None,
             {"role": "system", "content": SCOUT_SYSTEM}, {"role": "user", "content": question[:2000]}],
             Queries, max_tokens=300, temperature=0), 12)
         queries = [q.strip() for q in plan.queries if q.strip()][:4] or [question[:200]]
+        urls = [u for u in plan.urls if u.startswith(("http://", "https://"))][:3]
     except (NoModelAvailable, TimeoutError):
-        queries, scout = [question[:200]], "keyword fallback"
+        queries, scout, urls = [question[:200]], "keyword fallback", []
     await _emit(emit, {"type": "delivered", "id": "scout", "worker": scout, "role": "scout",
-                       "text": "\n".join(queries), "seconds": None})
+                       "text": "\n".join(queries + urls), "seconds": None})
 
     # 2. search
     await _emit(emit, {"type": "phase", "phase": "searching"})
-    evidence = await gather_evidence(queries, emit, http)
+    evidence = await gather_evidence(queries, emit, http, urls, question)
     await _emit(emit, {"type": "sources", "items": [asdict(e) | {"text": e.text[:300]} for e in evidence]})
     block = evidence_block(evidence) or "(no sources found: answer from knowledge and say so)"
 

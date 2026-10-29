@@ -72,3 +72,12 @@ def no_real_managers(monkeypatch, tmp_path):
 
     monkeypatch.setattr("nathan.managers.connected", nobody)
     monkeypatch.setattr("nathan.managers._settings_file", lambda: tmp_path / "settings.json")
+
+
+@pytest.fixture(autouse=True)
+def no_real_browser(monkeypatch):
+    """The hidden-browser page renderer must never run (or reach the web) in tests."""
+    async def blank(url):
+        return ""
+
+    monkeypatch.setattr("nathan.tools.fetch.render", blank)
