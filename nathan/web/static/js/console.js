@@ -239,6 +239,10 @@ function handle(ev) {
     case "judge_failed": { const u = unit("judge", {}); addLog(u, `${short(ev.model)} couldn't judge (${ev.reason})`); break; }
     case "manual_added": unit("manual" + units.size, { role: "pasted", model: ev.model, status: "done", text: ev.text }); break;
     case "sources": sources(ev.items); break;
+    case "reading": {
+      const u = units.get(ev.id) || unit(ev.id, { role: "source", status: "working", start: Date.now() });
+      addLog(u, "reading " + ev.url.replace(/^https?:\/\//, "").slice(0, 60)); play("work"); break;
+    }
     case "saved": {
       const a = $("answer");
       const note = el("div", { class: "row" }, el("span", { class: "tag" }, `saved ${ev.files.length} file(s)`),

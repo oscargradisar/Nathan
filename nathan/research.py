@@ -39,7 +39,9 @@ SNIPPET = 1800        # characters of text kept per source item
 MAX_EVIDENCE = 16     # items handed to the analysts
 ANALYSTS = 4
 PREMIUM_TIMEOUT_S = 180.0  # a premium researcher that takes longer is left out
-SOURCE_BUDGET_S = 25.0  # rendered pages take a few seconds each  # a source that takes longer keeps what it found so far
+SOURCE_BUDGET_S = 25.0
+NOISY = {"arXiv", "OpenAlex", "Hacker News"}  # must mention what the question names
+THIN = 4  # fewer useful sources than this: a second scout tries other angles  # rendered pages take a few seconds each  # a source that takes longer keeps what it found so far
 
 SCOUT_SYSTEM = """You plan web research. Turn the question into 2-4 short search queries
 (keywords, not sentences) that would find the answer in Wikipedia, papers or forums.
@@ -198,7 +200,20 @@ async def hackernews(http, q: str) -> list[tuple[str, str, str]]:
     return out
 
 
-SOURCES = {"Wikipedia": wikipedia, "Web (Marginalia)": marginalia, "DuckDuckGo": duckduckgo,
+async def reddit(http, q: str) -> list[tuple[str, str, str]]:
+    """Community knowledge: Reddit's public search, top threads with their opening post."""
+    j = (await http.get("https://www.reddit.com/search.json", params={
+        "q": q, "limit": 4, "sort": "relevance", "raw_json": 1})).json()
+    out = []
+    for c in (j.get("data") or {}).get("children", []):
+        d = c.get("data") or {}
+        text = (d.get("selftext") or "") + (f" [{d.get('score', 0)} upvotes, {d.get('num_comments', 0)} comments]")
+        if d.get("title"):
+            out.append((f"r/{d.get('subreddit', '?')}: {d['title']}", "https://www.reddit.com" + d.get("permalink", ""), text))
+    return out
+
+
+SOURCES = {"Wikipedia": wikipedia, "Reddit": reddit, "Web (Marginalia)": marginalia, "DuckDuckGo": duckduckgo,
            "Stack Overflow": stackoverflow, "OpenAlex": openalex, "arXiv": arxiv, "Hacker News": hackernews}
 
 
@@ -214,6 +229,8 @@ async def gather_evidence(queries: list[str], emit: Emit | None = None,
             if _q != queries[0]:
                 return []  # read each page once, not once per query
             terms = {w for w in re.findall(r"\w+", " ".join(queries).lower()) if len(w) > 3}
+            for u in _urls:
+                await _emit(emit, {"type": "reading", "id": "src:Live pages", "url": u})
             first = await asyncio.gather(*(read_page_html(u, _http) for u in _urls))
             follow: list[str] = []
             for u, (_, text, raw) in zip(_urls, first, strict=True):
@@ -222,6 +239,8 @@ async def gather_evidence(queries: list[str], emit: Emit | None = None,
                     follow += [h for h, label in links(raw, u) if host in h and h not in _urls and h not in follow
                                and any(t in (h + " " + label).lower() for t in terms)][:2]
             follow = follow[:3]
+            for u in follow:
+                await _emit(emit, {"type": "reading", "id": "src:Live pages", "url": u})
             second = await asyncio.gather(*(read_page_html(u, _http) for u in follow))
             # live pages keep their top: ranking tables hold names and numbers, not query words
             return [(u.split("//", 1)[-1][:80], u, text[:SNIPPET * 3])
@@ -262,15 +281,16 @@ async def gather_evidence(queries: list[str], emit: Emit | None = None,
     # names the question is about ("Rhythia"): evidence must mention one of them
     names = {w.lower() for w in re.findall(r"(?<!^)(?<![.?!]\s)\b[A-Z][a-zA-Z0-9]{2,}", question or "")}
 
-    def relevant(item: tuple[str, str, str]) -> bool:
+    def relevant(item: tuple[str, str, str], strict: bool) -> bool:
         if item[1] in (urls or []):
             return True  # pages the scout picked on purpose always count
         blob = (item[0] + " " + item[2]).lower()
-        if names and not any(n in blob for n in names):
+        if strict and names and sum(n in blob for n in names) < min(2, len(names)):
             return False
         return sum(t in blob for t in terms) >= need
 
-    found = {name: [i for i in items if relevant(i)] for name, items in found.items()}
+    # papers and news hits drift off-topic easily; general sources keep everything on-topic enough
+    found = {name: [i for i in items if relevant(i, name in NOISY)] for name, items in found.items()}
     evidence: list[Evidence] = []
     seen: set[str] = set()
     pools = [list(v) for v in found.values()]
@@ -312,6 +332,67 @@ async def _premium(m, question: str, emit: Emit | None, ask) -> tuple[str, str] 
     return m.name, text
 
 
+GAP_SYSTEM = """A first round of web research came back thin. Suggest DIFFERENT angles: 2-4 new
+search queries (other phrasings, related names, the community or site where this is discussed)
+and up to 3 exact pages likely to hold the answer.
+Reply with ONLY JSON: {"queries": ["..."], "urls": ["https://..."]}"""
+
+_URL = re.compile(r"https?://[^\s)\]>\"'`]+")
+
+
+def _merge(a: list[Evidence], b: list[Evidence]) -> list[Evidence]:
+    seen = {e.url or e.title for e in a}
+    out = list(a)
+    for e in b:
+        if (e.url or e.title) not in seen:
+            seen.add(e.url or e.title)
+            out.append(Evidence(len(out) + 1, e.source, e.title, e.url, e.text))
+    return out
+
+
+async def _second_round(engine, question, queries, urls, evidence, emit, http) -> list[Evidence]:
+    await _emit(emit, {"type": "working", "id": "scout2", "worker": "", "role": "scout"})
+    found = "\n".join(f"- {e.title} ({e.source})" for e in evidence) or "(nothing useful)"
+    try:
+        plan, by = await asyncio.wait_for(race_json(engine.client, engine.fastest(["fast", "cheap"])[:4], [
+            {"role": "system", "content": GAP_SYSTEM},
+            {"role": "user", "content": f"QUESTION: {question}\nALREADY SEARCHED: {queries}\nFOUND:\n{found}"}],
+            Queries, max_tokens=300, temperature=0.4), 12)
+    except (NoModelAvailable, TimeoutError):
+        await _emit(emit, {"type": "task_failed", "id": "scout2", "role": "scout", "reason": "no new angles"})
+        return []
+    q2 = [q for q in plan.queries if q.strip() and q not in queries][:4]
+    u2 = [u for u in plan.urls if u.startswith(("http://", "https://")) and u not in urls][:3]
+    await _emit(emit, {"type": "delivered", "id": "scout2", "worker": by, "role": "scout",
+                       "text": "second round:\n" + "\n".join(q2 + u2), "seconds": None})
+    return await gather_evidence(q2 or [question[:200]], emit, http, u2, question) if (q2 or u2) else []
+
+
+async def _harvest(premium, question, evidence, emit, http, limit: int = 4) -> list[Evidence]:
+    """Read the pages your managers cited from their own web searches."""
+    have = {e.url for e in evidence}
+    picks: list[tuple[str, str]] = []
+    for name, text in premium:
+        for u in _URL.findall(text):
+            u = u.rstrip(".,;:")
+            if u not in have and u not in (p[1] for p in picks):
+                picks.append((name, u))
+    picks = picks[:limit]
+    if not picks:
+        return []
+    unit = "src:Cited pages"
+    await _emit(emit, {"type": "working", "id": unit, "worker": "pages your managers found", "role": "source"})
+    for _, u in picks:
+        await _emit(emit, {"type": "reading", "id": unit, "url": u})
+    pages = await asyncio.gather(*(read_page(u, http) for _, u in picks))
+    out = [Evidence(0, f"cited by {name}", u.split("//", 1)[-1][:80], u, passages(text, question, budget=SNIPPET * 2))
+           for (name, u), (_, text) in zip(picks, pages, strict=True) if len(text) > 200]
+    await _emit(emit, {"type": "delivered" if out else "task_failed", "id": unit, "role": "source",
+                       "worker": "pages your managers found", "seconds": None,
+                       "text": "\n".join(f"• {e.title}" for e in out), **({} if out else {"reason": "unreadable"})})
+    return out
+
+
 async def run_research(engine, question: str, emit: Emit | None = None,
                        http: httpx.AsyncClient | None = None, team=None, ask=None) -> dict:
     from nathan import managers
@@ -340,6 +421,9 @@ async def run_research(engine, question: str, emit: Emit | None = None,
     # 2. search
     await _emit(emit, {"type": "phase", "phase": "searching"})
     evidence = await gather_evidence(queries, emit, http, urls, question)
+    if len(evidence) < THIN:  # thin pickings: a second scout tries other angles
+        more = await _second_round(engine, question, queries, urls, evidence, emit, http)
+        evidence = _merge(evidence, more)
     await _emit(emit, {"type": "sources", "items": [asdict(e) | {"text": e.text[:300]} for e in evidence]})
     block = evidence_block(evidence) or "(no sources found: answer from knowledge and say so)"
 
@@ -359,7 +443,15 @@ async def run_research(engine, question: str, emit: Emit | None = None,
     if not got and not premium:
         raise NoModelAvailable("no analyst could read the evidence")
 
-    # 4. verifier: your most senior signed-in manager, else the best free judge
+    # Pages your managers found on the live web get read and join the evidence
+    if premium:
+        cited = await _harvest(premium, question, evidence, emit, http)
+        if cited:
+            evidence = _merge(evidence, cited)
+            await _emit(emit, {"type": "sources", "items": [asdict(e) | {"text": e.text[:300]} for e in evidence]})
+            block = evidence_block(evidence)
+
+    # 4. verifier: your lead manager, else the best free judge
     await _emit(emit, {"type": "phase", "phase": "verifying"})
     answers = "\n\n".join([f"--- ANALYST {i + 1} ---\n{g[1].text}" for i, g in enumerate(got)]
                           + [f"--- {name.upper()} (searched the web itself) ---\n{t}" for name, t in premium])
