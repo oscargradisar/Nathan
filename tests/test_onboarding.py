@@ -191,7 +191,7 @@ def test_keys_endpoint_token_rules(providers, monkeypatch):
     assert client.post("/keys", json={**body, "token": ""}).status_code == 403
     assert client.post("/keys", json={**body, "token": "wrong"}).status_code == 403
     assert client.post("/keys", json={**body, "token": token, "provider": "gemini"}).status_code == 403
-    assert client.post("/keys", json={**body, "key": "nope", "token": token}).status_code == 422
+    assert client.post("/keys", json={**body, "key": "not a key", "token": token}).status_code == 422
     r = client.post("/keys", json={**body, "token": token})
     assert r.status_code == 200 and r.json()["close"] is True
     assert saved == {"groq": GOOD["groq"]}

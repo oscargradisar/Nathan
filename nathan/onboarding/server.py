@@ -82,10 +82,15 @@ class Hub:
         if require_token and not self.tokens.valid(token, provider):
             return 403, "missing, wrong or expired token — press Connect again in Nathan"
         key = key.strip()
-        if p.onboarding and p.onboarding.key_pattern and not p.onboarding.matches(key):
+        if not key or any(c.isspace() for c in key):
             return 422, f"that doesn't look like a {provider} key"
+        # The pattern is only a hint (providers change key formats); asking the provider is
+        # the real test, so a key that fails the pattern but works is still accepted.
+        odd = bool(p.onboarding and p.onboarding.key_pattern and not p.onboarding.matches(key))
         ok, msg = await self.checker(p, key)
         if not ok:
+            if odd:
+                msg = f"that doesn't look like a {provider} key ({msg})"
             self.status[provider] = Status("failed", msg)
             return 400, msg
         if token:

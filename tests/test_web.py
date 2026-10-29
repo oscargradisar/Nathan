@@ -172,8 +172,21 @@ def test_connect_wizard_endpoints(web, monkeypatch):
         assert r["method"] == "manual" and r["url"].startswith("https://")
     assert len(opened) == 3  # the server opened each key page in the real browser
 
-    bad = client.post("/api/keys/manual", json={"provider": "nvidia", "key": "nope"}, headers=H)
+    bad = client.post("/api/keys/manual", json={"provider": "nvidia", "key": "not a key"}, headers=H)
     assert bad.status_code == 422
+    # A key in a format providers.yaml doesn't know yet still works if the provider accepts it
+    odd = client.post("/api/keys/manual", json={"provider": "gemini", "key": "AQ.new-format-key-1234"},
+                      headers=H)
+    assert odd.status_code == 200
+
+    async def no(p, key):
+        return False, "invalid key"
+
+    client.app.state.hub.checker = no
+    odd = client.post("/api/keys/manual", json={"provider": "gemini", "key": "AQ.new-format-key-1234"},
+                      headers=H)
+    assert odd.status_code == 400 and "doesn't look like" in odd.json()["detail"]
+    client.app.state.hub.checker = ok
     good = client.post("/api/keys/manual", json={"provider": "nvidia", "key": "nvapi-" + "x" * 64},
                        headers=H)
     assert good.status_code == 200
