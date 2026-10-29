@@ -86,6 +86,45 @@ def create_app(engine, hub: Hub | None = None) -> FastAPI:
     async def connect_page() -> FileResponse:
         return FileResponse(STATIC / "connect.html")
 
+    @app.get("/workflow")
+    async def workflow_page() -> FileResponse:
+        return FileResponse(STATIC / "workflow.html")
+
+    @app.get("/leaderboard")
+    async def leaderboard_page() -> FileResponse:
+        return FileResponse(STATIC / "leaderboard.html")
+
+    @app.get("/api/staff")
+    async def staff_board() -> dict:
+        latest: dict[tuple[str, str], dict] = {}  # (run, task) → that task's latest event
+        for r in runs.runs.values():
+            if not r.finished:
+                for e in r.events:
+                    if e["type"] in ("working", "delivered", "reassigned", "task_failed"):
+                        latest[(r.id, e["id"])] = e
+        busy = {e["worker"] for e in latest.values() if e["type"] == "working"}
+        rows = engine.staff.board()
+        known = {r["ref"] for r in rows}
+        rows += [{"place": None, "ref": ref, "elo": 1000, "rank": "Silver", "jobs": 0, "done": 0,
+                  "no_shows": 0, "wins": 0, "losses": 0, "avg_score": None, "avg_seconds": None}
+                 for ref in engine.roster.candidates(None) if ref not in known]
+        for r in rows:
+            r["working"] = r["ref"] in busy
+        return {"staff": rows}
+
+    @app.post("/api/runs/{run_id}/prayer")
+    async def prayer_answer(run_id: str, body: ManualIn) -> dict:
+        run = runs.get(run_id)
+        if run is None or run.workflow is None:
+            raise HTTPException(404, "no workflow run with that id")
+        if not run.finished:
+            raise HTTPException(409, "the team is still working")
+        if not body.text.strip():
+            raise HTTPException(400, "paste Claude's reply first")
+        since = len(run.events)
+        asyncio.create_task(runs.answer_prayer(run, body.text[:50_000]))
+        return {"ok": True, "since": since}
+
     # ---- runs ---------------------------------------------------------------------------
 
     @app.post("/api/runs")

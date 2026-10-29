@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nathan Leaderboard</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <h1>Nathan</h1><span class="muted">who's carrying the company</span>
+  <nav><a href="/workflow">Workflow</a><a href="/leaderboard">Leaderboard</a><a href="/">Control room</a><a href="/connect">Connect accounts</a></nav>
+</header>
+<main>
+  <p class="muted">Every worker starts at 1000 Elo. After each workflow the reviewer scores every part out of 10, and workers on the same job win or lose points against each other. Beating a higher-ranked model earns more. Not showing up (timeout, quota gone) counts as a 0.</p>
+  <div class="ranks" id="ranks"></div>
+  <div class="card table-wrap">
+    <table>
+      <thead><tr><th>#</th><th>Rank</th><th>Worker</th><th>Elo</th><th>Jobs done</th><th>No-shows</th><th>W–L</th><th>Avg score</th><th>Avg time</th></tr></thead>
+      <tbody id="board"></tbody>
+    </table>
+  </div>
+</main>
+<script src="/static/leaderboard.js"></script>
+</body>
+</html>

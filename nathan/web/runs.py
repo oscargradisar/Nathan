@@ -39,6 +39,7 @@ class Run:
     candidates: list[Candidate] = field(default_factory=list)
     final: str = ""
     finished: bool = False
+    workflow: Any = None  # nathan.workflow.Workflow, kept so a prayer can be answered later
     _subscribers: list[asyncio.Queue] = field(default_factory=list)
     _task: asyncio.Task | None = None
 
@@ -85,6 +86,11 @@ class RunManager:
         try:
             if run.mode == "vote":
                 await self._vote(run, models, n)
+            elif run.mode == "workflow":
+                from nathan.workflow import run_workflow
+
+                run.workflow = await run_workflow(self.engine, run.prompt, run.emit)
+                run.final = run.workflow.final
             else:
                 ans = await self.engine.ask(run.prompt, mode=run.mode, models=models, n=n,
                                             on_event=run.emit)
@@ -180,6 +186,18 @@ class RunManager:
         cand = Candidate(f"manual/{source}", text.strip())
         run.candidates.append(cand)
         run.emit({"type": "manual_added", "model": cand.ref, "text": cand.text})
+
+    async def answer_prayer(self, run: Run, reply: str) -> None:
+        from nathan.workflow import answer_prayer
+
+        run.finished = False
+        try:
+            run.final = await answer_prayer(self.engine, run.workflow, reply, run.emit)
+        except NathanError as e:
+            run.emit({"type": "error", "message": str(e)})
+        finally:
+            run.finished = True
+            run.emit({"type": "done"})
 
     async def rejudge(self, run: Run) -> None:
         run.finished = False

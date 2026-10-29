@@ -16,8 +16,9 @@ from nathan.memory import Memory
 from nathan.patterns import Candidate, fallback, race, vote
 from nathan.quota import QuotaManager
 from nathan.roster import Roster
+from nathan.staff import START, Staff
 
-MODES = ("auto", "single", "race", "vote", "critique", "plan", "agent")
+MODES = ("auto", "single", "race", "vote", "critique", "plan", "agent", "workflow")
 
 
 @dataclass
@@ -47,7 +48,10 @@ class Engine:
         elif client.quota is None:
             client.quota = self.quota
         self.client = client
-        self.roster = Roster(self.providers, self.quota)
+        self.staff = Staff(self.data / "staff.sqlite")
+        # Elo is a tie-breaker after tag fit: well-rated workers get picked first everywhere
+        self.roster = Roster(self.providers, self.quota,
+                             score=lambda ref: (self.staff.elo(ref) - START) / 400)
         self.memory = memory if memory is not None else Memory(self.data / "memory.sqlite")
         self.workspace = workspace or workspace_dir()
 
@@ -127,6 +131,14 @@ class Engine:
                           extra={"planner": planner_ref, "graph": graph.model_dump(),
                                  "results": {k: v.__dict__ for k, v in result.results.items()},
                                  "max_parallel": result.max_parallel})
+        if mode == "workflow":
+            from nathan.workflow import run_workflow
+
+            goal = "\n\n".join(str(m["content"]) for m in messages if m["role"] == "user")
+            wf = await run_workflow(self, goal, on_event)
+            return Answer(wf.final, mode, sorted(set(wf.worker.values())), judge=wf.writer,
+                          note=wf.review.summary if wf.review else "",
+                          extra={"review": wf.review.model_dump() if wf.review else None})
         if mode == "auto":
             from nathan.router import route
 

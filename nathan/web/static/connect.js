@@ -56,7 +56,7 @@ async function refresh() {
   providers.forEach((p) => list.append(row(p)));
   const n = providers.filter((p) => p.state === "connected").length;
   $("summary").textContent = `${n} of ${providers.length} connected`;
-  if (n >= 2 && new URLSearchParams(location.search).has("first")) location.href = "/";
+  if (n >= 2 && new URLSearchParams(location.search).has("first")) location.href = "/workflow";
 }
 
 async function connect(name) {
