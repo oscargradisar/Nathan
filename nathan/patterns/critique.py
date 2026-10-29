@@ -6,7 +6,10 @@ reviewing the draft catches errors the first one is confident about.
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from nathan.client import Client, Message
 from nathan.patterns.fallback import fallback
@@ -35,17 +38,36 @@ def _others(chain: list[str], avoid: str) -> list[str]:
 
 
 async def critique(client: Client, messages: list[Message], *, drafters: list[str],
-                   critics: list[str], revisers: list[str] | None = None) -> CritiqueResult:
+                   critics: list[str], revisers: list[str] | None = None,
+                   on_event: Callable[[dict[str, Any]], Any] | None = None) -> CritiqueResult:
+    """on_event gets {"type": "step", "id", "role", "status", "model", "text"} per role."""
+
+    async def step(sid: str, role: str, refs: list[str], msgs: list[Message]):
+        await _emit(on_event, {"type": "step", "id": sid, "role": role, "status": "working",
+                               "model": refs[0] if refs else ""})
+        res = await fallback(client, refs, msgs)
+        await _emit(on_event, {"type": "step", "id": sid, "role": role, "status": "done",
+                               "model": res.ref, "text": res.text,
+                               "seconds": round(res.latency_ms / 1000, 1)})
+        return res
+
     task = "\n\n".join(str(m["content"]) for m in messages if m["role"] in ("system", "user"))
-    draft = await fallback(client, drafters, messages)
-    review = await fallback(client, _others(critics, draft.ref), [
+    draft = await step("draft", "drafter", drafters, messages)
+    review = await step("critique", "critic", _others(critics, draft.ref), [
         {"role": "system", "content": CRITIC_SYSTEM},
         {"role": "user", "content": f"TASK:\n{task}\n\nDRAFT:\n{draft.text}"},
     ])
     if "no changes needed" in review.text.lower():
         return CritiqueResult(draft.text, review.text, draft.text, draft.ref, review.ref, draft.ref)
-    revised = await fallback(client, revisers or drafters, [
+    revised = await step("revise", "reviser", revisers or drafters, [
         {"role": "system", "content": REVISE_SYSTEM},
         {"role": "user", "content": f"TASK:\n{task}\n\nDRAFT:\n{draft.text}\n\nREVIEW:\n{review.text}"},
     ])
     return CritiqueResult(draft.text, review.text, revised.text, draft.ref, review.ref, revised.ref)
+
+
+async def _emit(on_event, event: dict[str, Any]) -> None:
+    if on_event is not None:
+        out = on_event(event)
+        if asyncio.iscoroutine(out):
+            await out

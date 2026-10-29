@@ -135,12 +135,15 @@ def make_gate_responder(state):
         if "lead writer" in sys:
             assert all(f"--- {t['id']}" in user for t in PLAN["tasks"])
             return "# Solar brief\nA coherent one-page brief."
+        if "reviewer" in sys:  # workflow's asked-vs-got review
+            return json.dumps({"summary": "You asked for a brief and got one.", "scores": {}})
         state["running"] += 1
         state["peak"] = max(state["peak"], state["running"])
         await asyncio.sleep(0.02)
         state["running"] -= 1
         if "Outlook" in user:
-            assert "RESULT OF costs" in user and "RESULT OF policy" in user
+            for dep in ("costs", "policy"):  # plan says RESULT OF, workflow says WORK FROM
+                assert f"RESULT OF {dep}" in user or f"WORK FROM {dep}" in user
         state["models"].add(ref)
         return f"findings for: {user.splitlines()[1]}"
     return responder
@@ -183,7 +186,7 @@ async def test_auto_mode_routes_to_plan(make_engine):
 
     engine = make_engine(responder)
     ans = await engine.ask("Research solar power and write a one-page brief")
-    assert ans.mode == "plan" and "routed: research → plan" in ans.note
+    assert ans.mode == "workflow" and "routed: research → workflow" in ans.note
 
 
 # ---- critique ------------------------------------------------------------------------

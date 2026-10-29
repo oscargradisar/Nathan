@@ -5,6 +5,7 @@ CLI commands and the web UI both talk to an Engine, so they behave identically.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -97,11 +98,26 @@ class Engine:
         on_event = kwargs.pop("on_event", None)  # progress callback (web UI), not for the API
         max_steps = kwargs.pop("max_steps", 8)  # agent step limit
         if mode == "single":
-            res = await fallback(self.client, self.chain(tags, models), messages, **kwargs)
+            chain = self.chain(tags, models)
+            await _emit(on_event, {"type": "step", "id": "answer", "role": "answerer",
+                                   "status": "working", "model": chain[0] if chain else ""})
+            res = await fallback(self.client, chain, messages, **kwargs)
+            await _emit(on_event, {"type": "step", "id": "answer", "role": "answerer",
+                                   "status": "done", "model": res.ref, "text": res.text,
+                                   "seconds": round(res.latency_ms / 1000, 1)})
             return Answer(res.text, mode, [res.ref])
         if mode == "race":
             refs = models or self.roster.pick(tags or ["fast"], min(n, 3))
+            for i, ref in enumerate(refs):
+                await _emit(on_event, {"type": "step", "id": f"racer{i}", "role": "racer",
+                                       "status": "working", "model": ref})
             res = await race(self.client, refs, messages, **kwargs)
+            for i, ref in enumerate(refs):
+                won = ref == res.ref
+                await _emit(on_event, {"type": "step", "id": f"racer{i}", "role": "racer",
+                                       "status": "done" if won else "skipped", "model": ref,
+                                       "text": res.text if won else "",
+                                       "seconds": round(res.latency_ms / 1000, 1) if won else None})
             return Answer(res.text, mode, [res.ref])
         if mode == "vote":
             refs = models or self.roster.pick(tags or ["writing", "reasoning"], n)
@@ -116,7 +132,8 @@ class Engine:
 
             drafters = self.chain(tags or ["writing"], models)
             critics = self.chain(["judge", "reasoning"])
-            c = await critique(self.client, messages, drafters=drafters, critics=critics)
+            c = await critique(self.client, messages, drafters=drafters, critics=critics,
+                               on_event=on_event)
             return Answer(c.final, mode, [c.drafter, c.critic, c.reviser],
                           extra={"draft": c.draft, "critique": c.critique})
         if mode == "plan":
@@ -144,7 +161,9 @@ class Engine:
 
             question_text = "\n\n".join(str(m["content"]) for m in messages if m["role"] == "user")
             r = await route(self, question_text)
-            pattern = r.pattern
+            pattern = "workflow" if r.pattern == "plan" else r.pattern  # workflow = plan + review
+            await _emit(on_event, {"type": "routed", "pattern": pattern, "task_type": r.task_type,
+                                   "reason": r.reason, "by": r.by})
             ans = await self._run(messages, mode=pattern, models=models, n=n,
                                  tags=tags or r.tags or None, extra=extra, on_event=on_event,
                                   max_steps=max_steps, **kwargs)
@@ -163,3 +182,10 @@ class Engine:
                           note="step limit reached" if r.hit_limit else "",
                           extra={"tool_calls": [f"{s.name}({s.arguments})" for s in r.tool_calls]})
         raise NathanError(f"unknown mode {mode!r}; choose from {', '.join(MODES)}")
+
+
+async def _emit(on_event, event: dict[str, Any]) -> None:
+    if on_event is not None:
+        out = on_event(event)
+        if asyncio.iscoroutine(out):
+            await out

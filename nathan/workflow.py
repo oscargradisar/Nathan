@@ -28,6 +28,8 @@ from nathan.planner import Subtask, TaskGraph, plan
 
 Emit = Callable[[dict[str, Any]], Awaitable[None] | None]
 MAX_TRIES = 5  # workers tried per task before giving up on it
+HEDGE_AFTER_S = 20.0  # no delivery after this long: a backup worker starts on the same part
+REDO_BELOW = 5  # parts the reviewer scores below this get redone once by someone else
 
 WORKER_SYSTEM = ("You are one worker on a team of AI models. Do ONLY the part you are given, "
                  "thoroughly and factually. Say plainly if you are unsure of a fact.")
@@ -63,6 +65,7 @@ class Workflow:
     final: str = ""
     writer: str = ""
     review: Review | None = None
+    round_one: list[tuple[str, float]] = field(default_factory=list)  # (worker, score) of redone parts
 
 
 async def _emit(emit: Emit | None, event: dict[str, Any]) -> None:
@@ -99,33 +102,84 @@ def _worker_messages(wf: Workflow, task: Subtask) -> list:
             {"role": "user", "content": "\n\n".join(parts)}]
 
 
-async def _do_task(engine, wf: Workflow, task: Subtask, emit: Emit | None) -> None:
+async def hedged(engine, unit: str, chain: list[str], messages: list, emit: Emit | None,
+                 no_shows: list[str] | None = None, role: str = "worker"):
+    """Run one job on the first worker in `chain`. If it hasn't delivered after HEDGE_AFTER_S,
+    a backup starts on the same job and whoever finishes first wins (the slow one is cancelled,
+    no penalty: slow isn't absent). Failures hand over to the next worker.
+    Returns (ref, ChatResult, ms) or None if nobody delivered."""
+    chain = chain[:MAX_TRIES]
+    running: dict[asyncio.Task, tuple[str, float]] = {}
+    nxt = 0
+
+    async def launch(event: dict) -> bool:
+        nonlocal nxt
+        if nxt >= len(chain):
+            return False
+        ref = chain[nxt]
+        nxt += 1
+        running[asyncio.create_task(engine.client.chat(ref, messages))] = (ref, time.perf_counter())
+        await _emit(emit, {**event, "id": unit, "worker": ref, "role": role})
+        return True
+
+    await launch({"type": "working"})
+    try:
+        while running:
+            hedge = len(running) == 1 and nxt < len(chain)
+            done, _ = await asyncio.wait(running, timeout=HEDGE_AFTER_S if hedge else None,
+                                         return_when=asyncio.FIRST_COMPLETED)
+            if not done:  # slow, not dead: bring in a backup alongside
+                slow = next(iter(running.values()))[0]
+                await launch({"type": "backup", "for": slow})
+                continue
+            for t in done:
+                ref, start = running.pop(t)
+                try:
+                    res = t.result()
+                    reason = "" if res.text else "empty answer"
+                except RECOVERABLE as e:
+                    reason = type(e).__name__
+                if not reason:
+                    ms = (time.perf_counter() - start) * 1000
+                    engine.staff.record(ref, ok=True, ms=ms)
+                    await _emit(emit, {"type": "delivered", "id": unit, "worker": ref, "role": role,
+                                       "text": res.text, "seconds": round(ms / 1000, 1)})
+                    return ref, res, ms
+                if reason != "QuotaExceeded":  # out of free quota isn't the worker's fault
+                    engine.staff.record(ref, ok=False)
+                    if no_shows is not None:
+                        no_shows.append(ref)
+                if not running and nxt < len(chain):
+                    await launch({"type": "reassigned", "from": ref, "reason": reason})
+                    # (the event's "worker" is the new one; the UI reads from → worker)
+        await _emit(emit, {"type": "task_failed", "id": unit, "role": role})
+        return None
+    finally:
+        for t in running:
+            t.cancel()
+
+
+async def _do_task(engine, wf: Workflow, task: Subtask, emit: Emit | None,
+                   avoid: tuple[str, ...] = ()) -> None:
     first = wf.assigned[task.id]
-    chain = [first] + [r for r in engine.chain(task.tags or None) if r != first]
-    wf.no_shows[task.id] = []
-    for i, ref in enumerate(chain[:MAX_TRIES]):
-        await _emit(emit, {"type": "working", "id": task.id, "worker": ref})
-        start = time.perf_counter()
-        try:
-            res = await engine.client.chat(ref, _worker_messages(wf, task))
-            reason = "" if res.text else "empty answer"
-        except RECOVERABLE as e:
-            reason = type(e).__name__
-        if not reason:
-            ms = (time.perf_counter() - start) * 1000
-            engine.staff.record(ref, ok=True, ms=ms)
-            wf.worker[task.id], wf.results[task.id] = ref, res.text
-            await _emit(emit, {"type": "delivered", "id": task.id, "worker": ref,
-                               "text": res.text, "seconds": round(ms / 1000, 1)})
-            return
-        if reason != "QuotaExceeded":  # out of free quota isn't the worker's fault: no penalty
-            engine.staff.record(ref, ok=False)
-            wf.no_shows[task.id].append(ref)
-        nxt = chain[i + 1] if i + 1 < min(len(chain), MAX_TRIES) else None
-        if nxt:
-            await _emit(emit, {"type": "reassigned", "id": task.id, "from": ref, "to": nxt,
-                               "reason": reason})
-    await _emit(emit, {"type": "task_failed", "id": task.id})
+    chain = [first] + [r for r in engine.chain(task.tags or None) if r != first and r not in avoid]
+    wf.no_shows.setdefault(task.id, [])
+    got = await hedged(engine, task.id, chain, _worker_messages(wf, task), emit, wf.no_shows[task.id])
+    if got:
+        wf.worker[task.id], wf.results[task.id] = got[0], got[1].text
+
+
+async def _write(engine, wf: Workflow, emit: Emit | None) -> None:
+    assert wf.graph is not None
+    got = await hedged(engine, "writer", engine.chain(["writing", "long_context"]), [
+        {"role": "system", "content": WRITER_SYSTEM},
+        {"role": "user", "content": f"ORIGINAL REQUEST:\n{wf.prompt}\n\nHOW TO COMBINE: "
+                                    f"{wf.graph.synthesis}\n\nTEAM WORK:\n{_team_work(wf)}"}],
+        emit, role="writer")
+    if got is None:
+        raise NoModelAvailable("no writer could combine the team's work")
+    wf.final, wf.writer = got[1].text, got[0]
+    await _emit(emit, {"type": "final", "text": wf.final, "writer": wf.writer})
 
 
 def _team_work(wf: Workflow) -> str:
@@ -150,25 +204,36 @@ async def run_workflow(engine, prompt: str, emit: Emit | None = None) -> Workflo
         raise NoModelAvailable("no worker could do any part of the task")
 
     await _emit(emit, {"type": "phase", "phase": "writing"})
-    writers = engine.chain(["writing", "long_context"])
-    res = await fallback(engine.client, writers, [
-        {"role": "system", "content": WRITER_SYSTEM},
-        {"role": "user", "content": f"ORIGINAL REQUEST:\n{prompt}\n\nHOW TO COMBINE: "
-                                    f"{wf.graph.synthesis}\n\nTEAM WORK:\n{_team_work(wf)}"}])
-    wf.final, wf.writer = res.text, res.ref
-    await _emit(emit, {"type": "final", "text": wf.final, "writer": wf.writer})
+    await _write(engine, wf, emit)
 
     await _emit(emit, {"type": "phase", "phase": "reviewing"})
-    reviewers = [r for r in engine.judges() if r != wf.writer] or engine.chain(["reasoning"])
-    try:
-        wf.review, reviewer = await ask_json(engine.client, reviewers[:4], [
-            {"role": "system", "content": REVIEWER_SYSTEM},
-            {"role": "user", "content": f"ASKED FOR:\n{prompt}\n\nTEAM WORK:\n{_team_work(wf)}"
-                                        f"\n\nFINAL ANSWER:\n{wf.final}"}], Review, temperature=0.2)
-    except NoModelAvailable:
+    reviewer = await _review(engine, wf, emit)
+    if wf.review is None:
         await _emit(emit, {"type": "phase", "phase": "done"})
         return wf  # the answer stands; only the review (and this round's Elo) is skipped
-    await _emit(emit, {"type": "review", "reviewer": reviewer, **wf.review.model_dump()})
+
+    # Self-correction: weak parts are redone once by someone else, then the answer is rewritten
+    weak = [t for t in wf.graph.tasks if wf.review.scores.get(t.id, 10) < REDO_BELOW]
+    if weak:
+        first_scores = dict(wf.review.scores)
+        await _emit(emit, {"type": "phase", "phase": "fixing"})
+        await _emit(emit, {"type": "redo", "ids": [t.id for t in weak],
+                           "scores": {t.id: first_scores[t.id] for t in weak}})
+        for t in weak:
+            before = wf.worker.get(t.id)
+            if before:  # the round-one worker keeps its low score for Elo
+                wf.round_one.append((before, first_scores[t.id]))
+            wf.assigned[t.id] = next((r for r in sorted(engine.roster.candidates(t.tags or None)[:12],
+                                                        key=lambda r: -engine.staff.elo(r))
+                                      if r != before), before or "")
+        await asyncio.gather(*(_do_task(engine, wf, t, emit, avoid=(wf.worker.get(t.id, ""),))
+                               for t in weak))
+        await _emit(emit, {"type": "phase", "phase": "writing"})
+        await _write(engine, wf, emit)
+        await _emit(emit, {"type": "phase", "phase": "reviewing"})
+        reviewer = await _review(engine, wf, emit) or reviewer
+        if wf.review is None:
+            wf.review = Review(summary="", scores=first_scores)
 
     changes = engine.staff.rate(score_workers(wf))
     await _emit(emit, {"type": "ratings", "changes": {r: round(d, 1) for r, d in changes.items()}})
@@ -179,12 +244,32 @@ async def run_workflow(engine, prompt: str, emit: Emit | None = None) -> Workflo
     return wf
 
 
+async def _review(engine, wf: Workflow, emit: Emit | None) -> str | None:
+    """Asked-vs-got review. Sets wf.review (None if no reviewer answered); returns the reviewer."""
+    reviewers = [r for r in engine.judges() if r != wf.writer] or engine.chain(["reasoning"])
+    await _emit(emit, {"type": "working", "id": "reviewer", "worker": reviewers[0] if reviewers else "",
+                       "role": "reviewer"})
+    try:
+        wf.review, reviewer = await ask_json(engine.client, reviewers[:4], [
+            {"role": "system", "content": REVIEWER_SYSTEM},
+            {"role": "user", "content": f"ASKED FOR:\n{wf.prompt}\n\nTEAM WORK:\n{_team_work(wf)}"
+                                        f"\n\nFINAL ANSWER:\n{wf.final}"}], Review, temperature=0.2)
+    except NoModelAvailable:
+        wf.review = None
+        await _emit(emit, {"type": "task_failed", "id": "reviewer", "role": "reviewer"})
+        return None
+    await _emit(emit, {"type": "review", "reviewer": reviewer, **wf.review.model_dump()})
+    return reviewer
+
+
 def score_workers(wf: Workflow) -> dict[str, float]:
     """Review scores per worker (averaged if one worker did several parts); no-shows get 0."""
     got: dict[str, list[float]] = {}
     assert wf.review is not None
     for tid, ref in wf.worker.items():
         got.setdefault(ref, []).append(max(0.0, min(10.0, wf.review.scores.get(tid, 5.0))))
+    for ref, score in wf.round_one:
+        got.setdefault(ref, []).append(score)
     for refs in wf.no_shows.values():
         for ref in refs:
             got.setdefault(ref, []).append(0.0)
