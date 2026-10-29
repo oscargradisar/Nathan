@@ -30,6 +30,10 @@ function row(p) {
     `${p.method === "oauth_pkce" ? "sign in with OpenRouter" : p.method === "extension" ? "copy the key and it arrives here" : "paste key"} · adds ${cap}${extra}` +
     (p.detail ? ` · ${p.detail}` : "") + (p.note ? ` · ${p.note}` : "");
   div.querySelector(".off").hidden = p.state !== "connected";
+  if (p.method === "none") {  // free gateway: nothing to connect or remove
+    div.querySelector(".actions").hidden = true;
+    div.querySelector(".info").textContent = `free, no account needed · adds ${cap}`;
+  }
   div.querySelector(".go").onclick = () => connect(p.provider);
   div.querySelector(".pastebtn").onclick = () => div.querySelector(".paste").classList.toggle("open");
   div.querySelector(".save").onclick = async () => {

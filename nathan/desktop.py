@@ -67,7 +67,7 @@ def start_server(engine=None, port: int | None = None):
 
 
 def first_page(engine) -> str:
-    connected = sum(1 for p in engine.providers.values() if p.api_key)
+    connected = sum(1 for p in engine.providers.values() if p.key_env and p.api_key)  # gateways need no account
     return "/" if connected >= MIN_CONNECTED else "/connect?first=1"
 
 

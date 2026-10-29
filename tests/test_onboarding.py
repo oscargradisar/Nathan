@@ -59,6 +59,8 @@ def test_key_patterns_accept_real_shapes_and_reject_lookalikes(providers, name):
 
 def test_every_extension_provider_has_page_hints(providers):
     for p in providers.values():
+        if not p.key_env:
+            continue  # keyless gateway: nothing to connect
         assert p.onboarding, p.name
         assert p.onboarding.key_page.startswith("https://")
         if p.onboarding.method == "extension":

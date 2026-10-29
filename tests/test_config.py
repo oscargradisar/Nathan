@@ -10,7 +10,7 @@ def test_providers_yaml_loads():
     assert {"groq", "gemini", "cerebras", "openrouter", "mistral"} <= providers.keys()
     for p in providers.values():
         assert p.base_url.startswith("https://")
-        assert p.key_env.endswith("_API_KEY")
+        assert not p.key_env or p.key_env.endswith("_API_KEY")  # empty: keyless gateway
         assert p.models, f"{p.name} has no models"
 
 

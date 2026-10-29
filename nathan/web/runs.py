@@ -23,6 +23,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
+from nathan.client import strip_thinking
 from nathan.errors import RECOVERABLE, NathanError, NoModelAvailable
 from nathan.patterns.vote import Candidate, judge_messages
 
@@ -122,7 +123,7 @@ class RunManager:
                     async for piece in self.engine.client.stream(current, messages):
                         parts.append(piece)
                         run.emit({"type": "delta", "lane": i, "text": piece})
-                    text = "".join(parts).strip()
+                    text = strip_thinking("".join(parts))
                     if text:
                         ms = (time.perf_counter() - start) * 1000
                         run.emit({"type": "lane_done", "lane": i, "ok": True, "ms": round(ms),

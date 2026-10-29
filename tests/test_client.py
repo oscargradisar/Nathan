@@ -161,3 +161,31 @@ async def test_client_feeds_quota_manager(tmp_path):
     state["status"] = 200
     with pytest.raises(QuotaExceeded):
         await c.chat("alpha/a-big", [{"role": "user", "content": "x"}])
+
+
+async def test_keyless_gateway_sends_no_key():
+    """Free gateways (kilo, llm7) reject any Authorization header, even a placeholder."""
+    from nathan.client import Client
+    from nathan.config import Provider
+
+    seen = {}
+
+    def handler(req):
+        seen["auth"] = req.headers.get("authorization")
+        return httpx.Response(200, json={"id": "x", "object": "chat.completion", "created": 0,
+                                         "model": "m", "choices": [{"index": 0, "finish_reason": "stop",
+                                         "message": {"role": "assistant", "content": "OK"}}]})
+
+    p = Provider(name="gw", base_url="https://gw.example/v1", models={"m": {}})
+    client = Client({"gw": p}, http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    res = await client.chat("gw/m", [{"role": "user", "content": "hi"}])
+    assert res.text == "OK" and seen["auth"] is None
+
+
+def test_strip_thinking():
+    from nathan.client import strip_thinking
+
+    assert strip_thinking("<thought>hmm</thought>\nOK") == "OK"
+    assert strip_thinking("<think>a\nb</think>Answer") == "Answer"
+    assert strip_thinking("<thought>never closed") == ""  # all reasoning, no answer: empty
+    assert strip_thinking("plain") == "plain"

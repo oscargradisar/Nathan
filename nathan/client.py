@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import random
+import re
 import time
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
@@ -29,7 +30,7 @@ from openai import (
     AsyncOpenAI,
 )
 
-from nathan.config import Provider, load_providers
+from nathan.config import NO_KEY, Provider, load_providers
 from nathan.errors import (
     AuthError,
     BadRequest,
@@ -114,6 +115,20 @@ def retry_after_seconds(headers: httpx.Headers | dict[str, str] | None) -> float
         return None
 
 
+
+TIMEOUT_BENCH_S = 300.0  # a model that timed out sits out this long
+
+_THINKING = re.compile(r"<(think|thought|thinking)>.*?(</\1>|$)", re.DOTALL | re.IGNORECASE)
+
+
+def strip_thinking(text: str) -> str:
+    """Some models (Gemma, DeepSeek R1, Qwen) put their private reasoning in tags."""
+    return _THINKING.sub("", text).strip()
+
+async def _drop_placeholder_key(request: httpx.Request) -> None:
+    if request.headers.get("Authorization") == f"Bearer {NO_KEY}":
+        del request.headers["Authorization"]
+
 class Client:
     """Holds one AsyncOpenAI client per provider and adds retry + error typing."""
 
@@ -150,12 +165,18 @@ class Client:
             p = self.provider(name)
             if not p.api_key:
                 raise AuthError(f"no API key for {name} (set {p.key_env})", provider=name)
+            http = self.http_client
+            if p.api_key == NO_KEY:
+                # Keyless gateways reject any Authorization header, but the SDK always adds one
+                http = http or httpx.AsyncClient(timeout=self.timeout)
+                if _drop_placeholder_key not in http.event_hooks["request"]:
+                    http.event_hooks["request"].append(_drop_placeholder_key)
             self._clients[name] = AsyncOpenAI(
                 base_url=p.resolved_base_url,
                 api_key=p.api_key,
                 timeout=self.timeout,
                 max_retries=0,  # we retry ourselves so we can type the errors
-                http_client=self.http_client,
+                http_client=http,
             )
         return self._clients[name]
 
@@ -246,7 +267,15 @@ class Client:
                     raise ModelGone(msg, provider=r.provider, model=r.model) from e
                 raise BadRequest(msg, provider=r.provider, model=r.model) from e
 
-            except (APIConnectionError, APITimeoutError) as e:
+            except APITimeoutError as e:
+                # No answer within the timeout: retrying the same model would make the
+                # whole task wait again. Bench it briefly and let the caller try the next one.
+                if self.quota is not None:
+                    self.quota.block(r.provider, r.model, TIMEOUT_BENCH_S, "timeout")
+                raise ProviderDown(f"{r}: no answer within {self.timeout:.0f}s",
+                                   provider=r.provider, model=r.model) from e
+
+            except APIConnectionError as e:
                 if attempt < self.max_retries:
                     await self._sleep(self._backoff(attempt))
                     attempt += 1
@@ -323,7 +352,7 @@ def _to_result(completion: Any, r: ModelRef, headers: dict[str, str], seconds: f
             "arguments": tc.function.arguments or "{}",
         })
     return ChatResult(
-        text=((msg.content if msg else None) or "").strip(),
+        text=strip_thinking((msg.content if msg else None) or ""),
         provider=r.provider,
         model=r.model,
         latency_ms=seconds * 1000,

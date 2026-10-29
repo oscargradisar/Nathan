@@ -188,7 +188,7 @@ def create_app(engine, hub: Hub | None = None) -> FastAPI:
             st = hub.status.get(name)
             daily = sum((s.limits.rpd or 0) for s in p.models.values())
             out.append({
-                "provider": name, "method": ob.method if ob else "manual",
+                "provider": name, "method": "none" if not p.key_env else (ob.method if ob else "manual"),
                 "key_page": (ob.key_page if ob else "") or p.signup or "",
                 "note": ob.note if ob else "", "missing_env": p.missing_env,
                 "state": "connected" if p.api_key else (st.state if st else "not connected"),
@@ -252,6 +252,8 @@ def create_app(engine, hub: Hub | None = None) -> FastAPI:
         p = engine.providers.get(provider)
         if p is None:
             raise HTTPException(404, "unknown provider")
+        if not p.key_env:
+            raise HTTPException(400, f"{provider} needs no key, so there is nothing to remove")
         delete_key(p.name, p.key_env)
         hub.status[provider] = Status("not connected", "key removed from this computer")
         return {"ok": True, "revoke_at": (p.onboarding.key_page if p.onboarding else p.signup)}

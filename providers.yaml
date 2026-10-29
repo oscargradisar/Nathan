@@ -22,12 +22,12 @@ providers:
       openai/gpt-oss-120b:
         tags: [reasoning, code, writing, judge, planner, tools]
         limits: {rpm: 30, rpd: 1000, tpd: 200000}
-      llama-3.3-70b-versatile:
-        tags: [writing, fast, tools]
-        limits: {rpm: 30, rpd: 1000, tpd: 100000}
-      llama-3.1-8b-instant:
-        tags: [fast, cheap]
-        limits: {rpm: 30, rpd: 14400, tpd: 500000}
+      qwen/qwen3.8-27b:
+        tags: [reasoning, code, writing, fast, tools]
+        limits: {rpm: 30, rpd: 1000}
+      openai/gpt-oss-20b:
+        tags: [fast, cheap, tools]
+        limits: {rpm: 30, rpd: 1000}
 
   gemini:
     base_url: https://generativelanguage.googleapis.com/v1beta/openai/
@@ -48,6 +48,12 @@ providers:
       gemini-flash-lite-latest:
         tags: [long_context, fast, cheap]
         limits: {rpm: 10, rpd: 500}
+      gemma-4-31b-it:
+        tags: [writing, reasoning, long_context]
+        limits: {rpm: 15}
+      gemma-4-26b-a4b-it:
+        tags: [fast, cheap, writing]
+        limits: {rpm: 15}
 
   cerebras:
     base_url: https://api.cerebras.ai/v1
@@ -64,8 +70,8 @@ providers:
       gpt-oss-120b:
         tags: [reasoning, code, fast, tools]
         limits: {rpm: 30}
-      zai-glm-4.7:
-        tags: [code, writing]
+      qwen-3.8-27b:
+        tags: [reasoning, code, writing, fast]
         limits: {rpm: 30}
 
   openrouter:
@@ -79,7 +85,8 @@ providers:
     # 50 requests/day across ALL free models on the account — keep this a specialist lane
     account_limits: {rpm: 20, rpd: 50}
     models:
-      openrouter/free:
+      # not "openrouter/free": that router sometimes hands work to a safety filter
+      google/gemma-4-31b-it:free:
         tags: [writing]
         limits: {}
 
@@ -114,14 +121,23 @@ providers:
       key_pattern: 'nvapi-[A-Za-z0-9_\-]{40,90}'
     account_limits: {rpm: 40}
     models:
-      moonshotai/kimi-k2.6:
-        tags: [reasoning, writing, code, judge, long_context]
-        limits: {}
-      nvidia/nemotron-3-super-120b-a12b:
-        tags: [reasoning, writing]
-        limits: {}
       deepseek-ai/deepseek-v4.1-flash:
         tags: [code, reasoning, fast]
+        limits: {}
+      nvidia/nemotron-3-ultra-550b-a55b:
+        tags: [reasoning, writing, judge, planner, long_context]
+        limits: {}
+      z-ai/glm-5.3-flash:
+        tags: [code, writing, fast]
+        limits: {}
+      minimaxai/minimax-m3.1-flash:
+        tags: [writing, reasoning, fast]
+        limits: {}
+      stepfun-ai/step-5-preview:
+        tags: [reasoning, writing]
+        limits: {}
+      google/gemma-4-31b-it:
+        tags: [writing, fast]
         limits: {}
 
   sambanova:
@@ -138,6 +154,15 @@ providers:
         limits: {}
       gpt-oss-120b:
         tags: [reasoning, code, fast]
+        limits: {}
+      DeepSeek-V3.2:
+        tags: [reasoning, code, writing, judge]
+        limits: {}
+      MiniMax-M3.1-Flash:
+        tags: [writing, fast]
+        limits: {}
+      gemma-4-31B-it:
+        tags: [writing]
         limits: {}
 
   cloudflare:
@@ -160,4 +185,52 @@ providers:
         limits: {}
       "@cf/openai/gpt-oss-120b":
         tags: [reasoning, code]
+        limits: {}
+      "@cf/qwen/qwen3.8-27b":
+        tags: [reasoning, code]
+        limits: {}
+      "@cf/mistralai/mistral-small-3.1-24b-instruct":
+        tags: [writing, fast]
+        limits: {}
+      "@cf/meta/llama-4-scout-17b-16e-instruct":
+        tags: [fast, cheap]
+        limits: {}
+
+  # ---- Free gateways that need no account (from github.com/mnfst/awesome-free-llm-apis) ----
+
+  kilo:
+    # Kilo Code gateway: free models with no account or key. 200 requests/hour shared.
+    base_url: https://api.kilo.ai/api/gateway
+    account_limits: {rpm: 20, rpd: 4800}
+    models:
+      nvidia/nemotron-3-ultra-550b-a55b:free:
+        tags: [reasoning, writing, long_context]
+        limits: {}
+      nvidia/nemotron-3.5-lightning:free:
+        tags: [fast, writing, long_context]
+        limits: {}
+      poolside/laguna-s-2.1:free:
+        tags: [code]
+        limits: {}
+      cohere/north-mini-code:free:
+        tags: [code, fast]
+        limits: {}
+      xingchen-agi/xing4.0-29b-a4b:free:
+        tags: [writing]
+        limits: {}
+      dots-studio/dots-3-note-preview:free:
+        tags: [writing, long_context]
+        limits: {}
+
+  llm7:
+    # LLM7.io gateway, anonymous tier. Only its open-weight models are listed here; it also
+    # offers resold paid models (Claude, Gemini Pro), which Nathan's rules keep out.
+    base_url: https://api.llm7.io/v1
+    account_limits: {rpm: 20}
+    models:
+      gpt-oss:20b:
+        tags: [fast, cheap]
+        limits: {}
+      nemotron-3-nano:30b:
+        tags: [fast, reasoning]
         limits: {}

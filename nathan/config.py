@@ -38,6 +38,9 @@ class Limits(BaseModel):
     tpd: int | None = None  # tokens per day
 
 
+NO_KEY = "no-key-needed"  # placeholder for keyless providers; the client strips it
+
+
 def _var(name: str) -> str | None:
     """A ${VAR} in a base_url: from the environment, else saved in the keychain by Connect."""
     from nathan.keys import get_key
@@ -70,7 +73,7 @@ class Onboarding(BaseModel):
 class Provider(BaseModel):
     name: str
     base_url: str
-    key_env: str
+    key_env: str = ""  # empty: a free gateway that needs no account or key
     signup: str | None = None
     account_limits: Limits = Field(default_factory=Limits)
     models: dict[str, ModelSpec]
@@ -102,6 +105,8 @@ class Provider(BaseModel):
             return self.key_override
         if self.missing_env:
             return None  # can't call this provider until its ${VAR}s are set
+        if not self.key_env:
+            return NO_KEY
         from nathan.keys import get_key
 
         return get_key(self.name, self.key_env)
