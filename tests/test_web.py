@@ -1,5 +1,6 @@
 """Tier 5 web app: runs, SSE lanes, manual lane, quota, connect wizard — scripted models."""
 
+import asyncio
 import json
 import time
 
@@ -235,3 +236,130 @@ def test_stop_ends_a_run_in_progress(web):
         assert types[-2:] == ["stopped", "done"]
         assert client.post(f"/api/runs/{run_id}/stop", headers=H).json() == {"stopped": False}
         assert client.post("/api/runs/nope/stop", headers=H).status_code == 404
+
+
+def wait_finished(client, run_id):
+    for _ in range(200):
+        if client.app.state.runs.get(run_id).finished:
+            return
+        time.sleep(0.02)
+    raise AssertionError("run never finished")
+
+
+def test_stop_also_stops_a_rejudge(web):
+    slow = {"on": False}
+
+    async def thinking():
+        await asyncio.sleep(30)
+        return "late merge"
+
+    def r(ref, messages, **kw):
+        if slow["on"] and "CANDIDATE" in last_user(messages):
+            return thinking()
+        return responder(ref, messages)
+
+    client, _ = web(r)
+    with client:
+        run_id = client.post("/api/runs", json={"prompt": "q", "mode": "vote", "n": 2}, headers=H).json()["id"]
+        read_events(client, run_id)
+        client.post(f"/api/runs/{run_id}/manual", json={"source": "claude.ai", "text": "pasted"},
+                    headers=H)
+        slow["on"] = True
+        client.post(f"/api/runs/{run_id}/rejudge", headers=H)
+        assert client.post(f"/api/runs/{run_id}/stop", headers=H).json() == {"stopped": True}
+        wait_finished(client, run_id)
+        types = [e["type"] for e in client.app.state.runs.get(run_id).events]
+        assert types[-2:] == ["stopped", "done"]
+
+
+def test_events_carry_ids_and_resume_from_last_event_id(web):
+    client, _ = web(responder)
+    with client:
+        run_id = client.post("/api/runs", json={"prompt": "q", "mode": "vote", "n": 2}, headers=H).json()["id"]
+        wait_finished(client, run_id)
+        ids = []
+        with client.stream("GET", f"/api/runs/{run_id}/events") as r:
+            for line in r.iter_lines():
+                if line.startswith("id: "):
+                    ids.append(int(line[4:]))
+        stored = client.app.state.runs.get(run_id).events
+        assert ids == list(range(1, len(stored) + 1))
+        # A browser reconnecting by itself sends Last-Event-ID; the original ?since=0 is ignored.
+        resumed = []
+        with client.stream("GET", f"/api/runs/{run_id}/events?since=0",
+                           headers={"last-event-id": "3"}) as r:
+            for line in r.iter_lines():
+                if line.startswith("data: "):
+                    resumed.append(json.loads(line[6:]))
+        assert resumed == stored[3:]
+
+
+def test_streamed_tokens_are_grouped_into_fewer_events(web):
+    long = " ".join(f"w{i}" for i in range(300))  # the fake streams one word at a time
+
+    client, _ = web(lambda ref, messages, **kw: "merged" if "CANDIDATE" in last_user(messages) else long)
+    with client:
+        run_id = client.post("/api/runs", json={"prompt": "q", "mode": "vote", "n": 2}, headers=H).json()["id"]
+        events = read_events(client, run_id)
+    for lane in (0, 1):
+        deltas = [e["text"] for e in events if e["type"] == "delta" and e["lane"] == lane]
+        assert "".join(deltas).strip() == long  # nothing lost...
+        assert len(deltas) < 30  # ...in far fewer than 300 events
+
+
+def test_chunker_flushes_by_size_and_on_demand():
+    from nathan.web.runs import CHUNK_CHARS, Chunker
+
+    out = []
+    c = Chunker(out.append, {"type": "delta", "lane": 0})
+    c.add("x" * (CHUNK_CHARS - 1))
+    assert out == []
+    c.add("yy")
+    assert out == [{"type": "delta", "lane": 0, "text": "x" * (CHUNK_CHARS - 1) + "yy"}]
+    c.add("tail")
+    c.flush()
+    c.flush()  # nothing buffered: no empty event
+    assert [e["text"] for e in out][1:] == ["tail"]
+
+
+async def test_heartbeat_while_idle_then_events():
+    from nathan.web.runs import Run
+
+    run = Run("r1", "q", "single")
+    got = []
+
+    async def listen():
+        async for e in run.subscribe(0, heartbeat=0.01):
+            got.append(e)
+
+    task = asyncio.create_task(listen())
+    await asyncio.sleep(0.05)
+    run.emit({"type": "final", "text": "hi"})
+    run.emit({"type": "done"})
+    await asyncio.wait_for(task, 1)
+    assert None in got  # pings while nothing happened
+    assert [e["type"] for e in got if e] == ["final", "done"]
+
+
+async def test_live_runs_are_never_evicted(monkeypatch):
+    from nathan.web.runs import RunManager
+
+    gate = asyncio.Event()
+
+    async def execute(self, run, *a):
+        await gate.wait()
+        run.finished = True
+
+    monkeypatch.setattr(RunManager, "_execute", execute)
+    m = RunManager(engine=None, keep=2)
+    first = m.start("one")
+    m.start("two")
+    m.start("three")  # over the limit, but all three still running
+    assert first.id in m.runs and len(m.runs) == 3
+    gate.set()
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    fourth = m.start("four")
+    assert first.id not in m.runs and fourth.id in m.runs  # the oldest finished one goes
+    gate.set()
+    await asyncio.gather(*(r._task for r in m.runs.values()))

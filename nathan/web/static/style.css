@@ -4,6 +4,7 @@
   --line: #143047; --line2: #1d4562; --text: #d8e7f3; --muted: #7d96ab; --dim: #4c6578;
   --cyan: #3fd3ff; --cyan-d: #1b8fb8; --amber: #ffb54a; --ok: #43e0a0; --bad: #ff5f7e;
   --violet: #a78bfa;
+  --overlord: #ff3b6b; --overlord-glow: rgba(255, 59, 107, .45);  /* Claude in command */
   --mono: "Cascadia Mono", "JetBrains Mono", "SF Mono", Consolas, ui-monospace, monospace;
   --sans: "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, sans-serif;
   --r: 10px;
@@ -110,8 +111,16 @@ body.busy .r1 { animation: spin 14s linear infinite; }
 body.busy .r2 { animation: spin 6s linear infinite reverse; stroke: var(--amber); }
 body.busy .r3 { animation: spin 22s linear infinite; }
 body.busy .heart { stroke: var(--amber); animation: breathe 1.2s ease-in-out infinite; }
+/* a terminal caret after the status while the team works */
+body.busy #core-big::after { content: "_"; margin-left: 1px; color: var(--cyan); animation: blink 1s steps(1) infinite; }
+/* Overlord run: the core takes the overlord's colour */
+body.busy.overlord .r2, body.busy.overlord .heart { stroke: var(--overlord); }
+body.busy.overlord .heart { filter: drop-shadow(0 0 10px var(--overlord-glow)); }
+body.busy.overlord #core-big { text-shadow: 0 0 10px var(--overlord-glow); }
+body.busy.overlord #core-big::after { color: var(--overlord); }
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes breathe { 50% { transform: scale(1.08); opacity: .8; } }
+@keyframes blink { 50% { opacity: 0; } }
 
 /* command bar */
 .cmd { background: var(--panel); border: 1px solid var(--line2); border-radius: 14px; padding: 10px 12px; box-shadow: 0 0 30px rgba(63,211,255,.06); }
@@ -124,6 +133,8 @@ body.busy .heart { stroke: var(--amber); animation: breathe 1.2s ease-in-out inf
 .mode { font: 12px var(--mono); color: var(--muted); background: transparent; border: 1px solid var(--line); border-radius: 99px; padding: 4px 11px; }
 .mode:hover { color: var(--text); }
 .mode[aria-checked="true"] { color: var(--cyan); border-color: var(--cyan-d); background: rgba(63,211,255,.08); }
+.mode[data-mode="overlord"][aria-checked="true"] { color: var(--overlord); border-color: var(--overlord);
+  background: rgba(255,59,107,.08); box-shadow: 0 0 12px rgba(255,59,107,.25); }
 .cmd-actions { display: flex; gap: 8px; }
 .mode-help { font: 12px var(--mono); margin-top: 6px; min-height: 1.4em; }
 
@@ -138,6 +149,10 @@ body.busy .heart { stroke: var(--amber); animation: breathe 1.2s ease-in-out inf
 .unit.done::before { background: var(--ok); }
 .unit.failed::before { background: var(--bad); }
 .unit.skipped { opacity: .55; }
+/* the overlord's card (Claude planning and judging) glows in its own colour */
+.unit[data-role="overlord"] { border-color: rgba(255,59,107,.4); box-shadow: 0 0 18px rgba(255,59,107,.12); }
+.unit[data-role="overlord"]:not(.failed)::before { background: var(--overlord); box-shadow: 0 0 12px var(--overlord); }
+.unit[data-role="overlord"] .u-role { color: var(--overlord); text-shadow: 0 0 8px var(--overlord-glow); }
 .unit .u-top { display: flex; align-items: center; gap: 8px; font: 11.5px var(--mono); }
 .unit .u-role { color: var(--cyan); letter-spacing: .1em; text-transform: uppercase; overflow-wrap: anywhere; }
 .unit .u-state { margin-left: auto; color: var(--muted); white-space: nowrap; }
@@ -182,6 +197,7 @@ body.busy .heart { stroke: var(--amber); animation: breathe 1.2s ease-in-out inf
 .feed-panel { padding-bottom: 6px; }
 .feed { list-style: none; margin: 0; padding: 0; font: 12px/1.5 var(--mono); max-height: 46vh; overflow-y: auto; }
 .feed li { padding: 3px 0; border-bottom: 1px dashed rgba(29,69,98,.5); color: #a9bfd0; overflow-wrap: anywhere; }
+.feed li::before { content: "> "; color: var(--dim); }
 .feed li time { color: var(--dim); margin-right: 6px; }
 .feed li.sys { color: var(--muted); }
 .feed li.good { color: var(--ok); } .feed li.warn { color: var(--amber); } .feed li.bad { color: var(--bad); } .feed li.quip { color: var(--violet); }

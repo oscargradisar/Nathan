@@ -46,6 +46,8 @@ export const short = (ref) => (ref || "").split("/").slice(1).join("/") || ref |
 export const provider = (ref) => (ref || "").split("/")[0];
 export const clock = (d = new Date()) => d.toTimeString().slice(0, 8);
 export const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+// A link we can safely put in href: http(s) only, else null (el() then leaves href off).
+export const webUrl = (url) => (typeof url === "string" && /^https?:\/\//i.test(url.trim()) ? url.trim() : null);
 
 let toastTimer;
 export function toast(text, ms = 2600) {

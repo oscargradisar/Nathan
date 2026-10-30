@@ -32,7 +32,7 @@ from pydantic import BaseModel
 from nathan.engine import MODES
 from nathan.onboarding.server import Hub, make_router
 from nathan.web.manual import SITES, manual_prompt
-from nathan.web.runs import RunManager
+from nathan.web.runs import HEARTBEAT_S, RunManager
 
 STATIC = Path(__file__).parent / "static"
 RUN_MODES = (*MODES, "swarm", "diagnostics", "review")
@@ -162,6 +162,9 @@ def create_app(engine, hub: Hub | None = None, self_check: bool = False) -> Fast
             ver = "dev"
         keyed = [p for p in engine.providers.values() if p.key_env and p.api_key]
         free = [p for p in engine.providers.values() if not p.key_env]
+        # SQLite stays on the event loop on purpose: the quota/memory/staff connections are shared
+        # with the loop (every model call records quota), and Python's sqlite3 connection isn't
+        # safe to use from two threads at once ("bad parameter or other API misuse").
         staff = engine.roster.candidates(None)
         total = sum(len(p.models) for p in engine.providers.values() if p.api_key)
         return {"version": ver, "accounts": [p.name for p in keyed],
@@ -192,16 +195,9 @@ def create_app(engine, hub: Hub | None = None, self_check: bool = False) -> Fast
 
     @app.post("/api/open-workspace")
     def open_workspace() -> dict:  # plain def: FastAPI runs it off the event loop
-        import os
-        import subprocess
-        import sys
-
         ws = Path(engine.workspace)
         ws.mkdir(parents=True, exist_ok=True)
-        if sys.platform == "win32":
-            os.startfile(ws)
-        else:
-            subprocess.run(["open" if sys.platform == "darwin" else "xdg-open", str(ws)], check=False)
+        _open_folder(ws)
         return {"path": str(ws)}
 
     @app.get("/api/managers")
@@ -249,19 +245,12 @@ def create_app(engine, hub: Hub | None = None, self_check: bool = False) -> Fast
 
     @app.post("/api/projects/{name}/open")
     def open_project(name: str) -> dict:
-        import os
-        import subprocess
-        import sys
-
         from nathan.tools.files import safe_path
 
         folder = safe_path(Path(engine.workspace) / "code", name)
         if not folder.is_dir():
             raise HTTPException(404, "no such project")
-        if sys.platform == "win32":
-            os.startfile(folder)
-        else:
-            subprocess.run(["open" if sys.platform == "darwin" else "xdg-open", str(folder)], check=False)
+        _open_folder(folder)
         return {"path": str(folder)}
 
     @app.post("/api/quit")
@@ -318,10 +307,7 @@ def create_app(engine, hub: Hub | None = None, self_check: bool = False) -> Fast
             folder = jobs.workspace(Path(engine.workspace))
         finally:
             jobs.current.reset(token)
-        if sys.platform == "win32":
-            os.startfile(folder)
-        else:
-            subprocess.run(["open" if sys.platform == "darwin" else "xdg-open", str(folder)], check=False)
+        _open_folder(folder)
         return {"path": str(folder)}
 
     @app.get("/api/canvas")
@@ -507,7 +493,7 @@ def create_app(engine, hub: Hub | None = None, self_check: bool = False) -> Fast
                     if e["type"] in ("working", "delivered", "reassigned", "task_failed"):
                         latest[(r.id, e["id"])] = e
         busy = {e["worker"] for e in latest.values() if e["type"] == "working"}
-        rows = engine.staff.board()
+        rows = engine.staff.board()  # on the loop, like /api/status: shared SQLite connections
         known = {r["ref"] for r in rows}
         rows += [{"place": None, "ref": ref, "elo": 1000, "rank": "Silver", "jobs": 0, "done": 0,
                   "no_shows": 0, "wins": 0, "losses": 0, "avg_score": None, "avg_seconds": None}
@@ -531,9 +517,7 @@ def create_app(engine, hub: Hub | None = None, self_check: bool = False) -> Fast
             raise HTTPException(409, "the team is still working")
         if not body.text.strip():
             raise HTTPException(400, "paste Claude's reply first")
-        since = len(run.events)
-        asyncio.create_task(runs.answer_prayer(run, body.text[:50_000]))
-        return {"ok": True, "since": since}
+        return {"ok": True, "since": runs.answer_prayer(run, body.text[:50_000])}
 
     # ---- runs ---------------------------------------------------------------------------
 
@@ -558,14 +542,23 @@ def create_app(engine, hub: Hub | None = None, self_check: bool = False) -> Fast
         return {"id": run.id, "manual_prompt": manual_prompt(body.prompt), "sites": SITES}
 
     @app.get("/api/runs/{run_id}/events")
-    async def events(run_id: str, since: int = 0) -> StreamingResponse:
+    async def events(run_id: str, request: Request, since: int = 0) -> StreamingResponse:
         run = runs.get(run_id)
         if run is None:
             raise HTTPException(404, "no such run")
+        # Each event carries `id: <index + 1>`. When the browser reconnects by itself it sends
+        # that back as Last-Event-ID, so we resume there instead of replaying the whole run.
+        last = request.headers.get("last-event-id", "")
+        start = int(last) if last.isdigit() else since
 
         async def stream():
-            async for event in run.subscribe(since):
-                yield f"data: {json.dumps(event)}\n\n"
+            i = start
+            async for event in run.subscribe(start, heartbeat=HEARTBEAT_S):
+                if event is None:  # idle (e.g. a long Claude call): keep the connection alive
+                    yield ": ping\n\n"
+                    continue
+                i += 1
+                yield f"id: {i}\ndata: {json.dumps(event)}\n\n"
 
         return StreamingResponse(stream(), media_type="text/event-stream",
                                  headers={"cache-control": "no-cache"})
@@ -596,9 +589,7 @@ def create_app(engine, hub: Hub | None = None, self_check: bool = False) -> Fast
             raise HTTPException(404, "no such run")
         if not run.finished:
             raise HTTPException(409, "run still in progress")
-        since = len(run.events)
-        asyncio.create_task(runs.rejudge(run))
-        return {"ok": True, "since": since}
+        return {"ok": True, "since": runs.rejudge(run)}
 
     @app.post("/api/manual-prompt")
     async def make_manual_prompt(body: RunIn) -> dict:
@@ -719,6 +710,14 @@ def create_app(engine, hub: Hub | None = None, self_check: bool = False) -> Fast
         return {"ok": True, "revoke_at": (p.onboarding.key_page if p.onboarding else p.signup)}
 
     return app
+
+
+def _open_folder(folder: Path) -> None:
+    """Show a folder in the system file manager."""
+    if sys.platform == "win32":
+        os.startfile(folder)
+    else:
+        subprocess.run(["open" if sys.platform == "darwin" else "xdg-open", str(folder)], check=False)
 
 
 def _last_check(data) -> dict | None:

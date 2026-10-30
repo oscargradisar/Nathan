@@ -1,5 +1,5 @@
 // The console: one command bar, every mode, live cards for every model on the job.
-import { $, api, clock, el, follow, md, plain, provider, short, store, toast } from "./core.js";
+import { $, api, clock, el, follow, md, plain, provider, short, store, toast, webUrl } from "./core.js";
 import { boot, errorLine, finalLine, quip, startLine } from "./quips.js";
 import { play } from "./sound.js";
 import { canListen, listen, say, stop as stopSpeech } from "./voice.js";
@@ -172,6 +172,7 @@ async function start() {
   stopFollow && stopFollow(); stopSpeech();
   reset();
   busy(true, "ROUTING", mode === "auto" ? "deciding how to handle this" : (MODES.find((m) => m.id === mode)?.label || { code: "programming", review: "performance review" }[mode] || mode).toLowerCase());
+  document.body.classList.toggle("overlord", mode === "overlord");  // tints the core while Claude commands
   play("start"); say_(startLine());
   strike($("core"), { big: true });
   try {
@@ -187,7 +188,8 @@ function sources(items) {
   const old = $("sources"); if (old) old.remove();
   if (!items.length) return;
   const ol = el("ol");
-  for (const s of items) ol.append(el("li", {}, el("a", { href: s.url, target: "_blank", rel: "noopener" }, s.title || s.url),
+  // webUrl: only http(s) links. A javascript: URL from a scraped page would run inside Nathan.
+  for (const s of items) ol.append(el("li", {}, el("a", { href: webUrl(s.url), target: "_blank", rel: "noopener" }, s.title || s.url),
     el("span", { class: "src" }, s.source)));
   $("units").after(el("div", { class: "panel sources", id: "sources" }, el("header", {}, el("h2", {}, `Sources · ${items.length}`)), ol));
 }
@@ -204,6 +206,7 @@ function reset() {
 
 function busy(on, big = "", small = "") {
   document.body.classList.toggle("busy", on);
+  if (!on) document.body.classList.remove("overlord");
   document.body.classList.toggle("idle", !on);
   $("go").textContent = on ? "STOP" : "RUN";  // while working, the same button stops the team
   $("go").classList.toggle("stop", on);
@@ -228,17 +231,21 @@ function handle(ev) {
       const r = $("route"); r.hidden = false;
       r.textContent = `→ ${label(ev.pattern)}  ·  ${ev.task_type}${ev.reason ? "  ·  " + ev.reason : ""}`;
       $("core-small").textContent = label(ev.pattern).toLowerCase();
+      if (ev.pattern === "overlord") document.body.classList.add("overlord");
       play("route"); break;
     }
     case "phase": phase(ev.phase); break;
-    case "note": say_(ev.text); toast(ev.text, 5000); break;
-    case "plan":
-      unit("manager", { role: "manager", task: "Split your request into parts", model: ev.planner, status: "done",
+    case "note": log(ev.text, "warn"); toast(ev.text, 5000); break;  // say_ wants a [text, tone] pair
+    case "plan": {
+      // The overlord's card stays the overlord's, unless a free planner had to take over from it.
+      const m = units.get("manager");
+      unit("manager", { role: m?.role === "overlord" && m.model === ev.planner ? "overlord" : "manager", task: "Split your request into parts", model: ev.planner, status: "done",
         text: ev.tasks.map((t) => `${t.id}: ${t.instruction}`).join("\n") });
       for (const t of ev.tasks) unit(t.id, { role: "part " + t.id, task: t.instruction, model: t.worker,
         status: "queued", state: t.depends_on.length ? "waits for " + t.depends_on.join(", ") : "assigned" });
       $("core-small").textContent = `${ev.tasks.length} parts · ${new Set(ev.tasks.map((t) => t.worker)).size} workers`;
       play("route"); break;
+    }
     case "working":
       if (ev.role === "patient") break;
       unit(ev.id, { role: roleOf(ev), model: ev.worker, status: "working", start: Date.now() }); play("work"); break;
@@ -289,7 +296,7 @@ function handle(ev) {
       $("core-big").textContent = ev.lanes.length > 5 ? "SWARM" : "COUNCIL";
       $("core-small").textContent = `${ev.lanes.length} models answering`;
       break;
-    case "delta": { const u = units.get("lane" + ev.lane); if (u) { u.text = (u.text || "") + ev.text; paintText(u); } break; }
+    case "delta": { const u = units.get("lane" + ev.lane); if (u) streamText(u, ev.text); break; }
     case "lane_switch": { const u = unit("lane" + ev.lane, { model: ev.model, text: "", start: Date.now() }); addLog(u, `switched to ${short(ev.model)} (${ev.reason})`); break; }
     case "lane_done":
       unit("lane" + ev.lane, ev.ok ? { status: "done", state: `done · ${(ev.ms / 1000).toFixed(1)}s`, model: ev.model }
@@ -299,7 +306,7 @@ function handle(ev) {
     case "judge_start":
       unit("judge", { role: "judge", task: "Merge the best of every answer", model: ev.model, status: "working", start: Date.now(), text: "" });
       $("core-big").textContent = "JUDGING"; break;
-    case "judge_delta": { const u = units.get("judge"); if (u) { u.text += ev.text; paintText(u); } break; }
+    case "judge_delta": { const u = units.get("judge"); if (u) streamText(u, ev.text); break; }
     case "judge_failed": { const u = unit("judge", {}); addLog(u, `${short(ev.model)} couldn't judge (${ev.reason})`); break; }
     case "manual_added": unit("manual" + units.size, { role: "pasted", model: ev.model, status: "done", text: ev.text }); break;
     case "sources": sources(ev.items); break;
@@ -322,7 +329,7 @@ function handle(ev) {
     case "stopped": play("fail"); say_("Stopped. Nothing else will be done on that one."); toast("Stopped."); break;
     case "done": busy(false); onFinish(); break;
   }
-  paintRing();
+  if (!ev.type.endsWith("delta")) paintRing();  // streamed text never changes a card's status
 }
 
 function phase(p) {
@@ -404,6 +411,7 @@ function addLog(u, line) { u.log.push(line); paint(u); }
 function paint(u) {
   const E = u.els;
   E.card.className = "unit " + u.status;
+  E.card.dataset.role = u.role;  // lets CSS give the overlord its own look
   E.role.textContent = u.role;
   E.task.textContent = u.task || ""; E.task.hidden = !u.task;
   const r = elo[u.model];
@@ -422,10 +430,20 @@ function paint(u) {
   E.state.textContent = u.state || (u.status === "working" ? elapsed(u) : u.status);
   paintText(u);
 }
-function paintText(u) {
-  const t = u.els.text;
-  t.textContent = u.text || ""; t.hidden = !u.text;
-  if (u.status === "working" && u.text) t.scrollTop = t.scrollHeight;
+// Streaming: text arrives in many small pieces. Collect them and paint once per frame,
+// appending only the new part, instead of rewriting the whole card for every piece.
+const dirty = new Set();
+function streamText(u, text) {
+  u.text = (u.text || "") + text;
+  if (!dirty.size) requestAnimationFrame(() => { for (const d of dirty) paintText(d, false); dirty.clear(); });
+  dirty.add(u);
+}
+function paintText(u, full = true) {
+  const t = u.els.text, text = u.text || "";
+  if (full || u.shown == null || text.length < u.shown) t.textContent = text;
+  else if (text.length > u.shown) t.append(text.slice(u.shown));
+  u.shown = text.length; t.hidden = !text;
+  if (u.status === "working" && text) t.scrollTop = t.scrollHeight;
 }
 function elapsed(u) { return u.start ? `working · ${Math.round((Date.now() - u.start) / 1000)}s` : "working"; }
 function tickTimers() {
