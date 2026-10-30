@@ -393,3 +393,26 @@ figure { margin: 0; }
 .job-history details { border-top: 1px solid var(--line); padding: 6px 0; }
 .job-history summary { cursor: pointer; }
 .go.stop { background: linear-gradient(180deg, #ff8a9e, var(--bad)); color: #1a0006; }
+
+/* Evolve: ideas from Claude */
+.ev-ideas { display: flex; flex-direction: column; gap: 8px; max-width: 980px; margin-top: 12px; }
+.ev-ideas[hidden] { display: none; }
+.ev-ideas-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; padding: 0 2px; }
+.ev-ideas-head h2 { font: 600 12px var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--cyan); margin: 0; }
+.ev-ideas-head .muted { font-size: 12.5px; }
+.ev-idea { border-left: 2px solid var(--cyan-d); }
+.ev-idea:hover { border-color: var(--line2); border-left-color: var(--cyan); box-shadow: 0 0 20px rgba(63, 211, 255, .06); }
+.ev-idea-top { display: flex; gap: 10px; align-items: center; min-width: 0; }
+.ev-idea-top b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.ev-idea-top .go { flex: none; }
+.ev-rank { font: 600 12px var(--mono); color: var(--dim); letter-spacing: .08em; }
+.ev-why { margin: 6px 0 0; font-size: 13.5px; line-height: 1.5; }
+.ev-badge.kind-bug { color: #ff7a8a; border-color: #ff7a8a55; }
+.ev-badge.kind-speed { color: var(--amber); border-color: #ffb54a55; }
+.ev-badge.kind-capability { color: var(--violet); border-color: #a78bfa55; }
+.ev-badge.kind-ui { color: var(--cyan); border-color: var(--cyan-d); }
+.ev-badge.conflict { color: var(--amber); border-color: #ffb54a66; }
+@media (max-width: 640px) {
+  .ev-idea-top { flex-wrap: wrap; }
+  .ev-idea-top b { flex-basis: 100%; order: 3; white-space: normal; }
+}

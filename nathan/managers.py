@@ -17,9 +17,11 @@ import asyncio
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -27,6 +29,7 @@ from pathlib import Path
 NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
 TIMEOUT_S = 300.0
+SEEN_TTL_S = 60.0  # how long a sign-in check is trusted (each check starts a Node process)
 
 
 @dataclass(frozen=True)
@@ -62,13 +65,68 @@ def find_cli(mid: str) -> str | None:
     return None
 
 
-def _run(args: list[str], stdin: str | None = None, timeout: float = 30,
-         cwd: Path | None = None) -> subprocess.CompletedProcess:
-    with tempfile.TemporaryDirectory() as empty:  # default: an empty folder, no project files leak in
+# ---- running the CLIs ------------------------------------------------------------------
+# On Windows the CLIs are usually npm shims (claude.cmd -> cmd.exe -> node). Killing the
+# process we started would only end cmd.exe and leave node working (and spending your plan),
+# so we always kill the whole process tree.
+
+def kill_tree(pid: int) -> None:
+    """Stop a process and everything it started."""
+    if sys.platform == "win32":
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(pid)], capture_output=True,
+                       creationflags=NO_WINDOW, check=False)
+    else:
+        try:  # started with start_new_session=True, so its group id is its pid
+            os.killpg(pid, signal.SIGKILL)
+        except OSError:
+            pass
+
+
+def _stop(proc: subprocess.Popen) -> None:
+    if proc.poll() is None:
+        kill_tree(proc.pid)
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+
+
+def _spawn(args: list[str], cwd: Path | str) -> subprocess.Popen:
+    """Start a process (quick: waiting for it is what's slow, and that happens in a thread).
+    On POSIX it gets its own process group, so kill_tree can stop its children too."""
+    return subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace",
+                            cwd=cwd, creationflags=NO_WINDOW, start_new_session=sys.platform != "win32")
+
+
+async def run_process(args: list[str], stdin: str | None = None, timeout: float = 30,
+                      cwd: Path | str | None = None) -> subprocess.CompletedProcess:
+    """Run a command without blocking the event loop, and make sure it dies with us.
+
+    Why not asyncio.to_thread(subprocess.run)? A thread can't be cancelled: when the Stop
+    button (or a timeout) cancels the caller, the CLI would keep running for minutes. Here a
+    timeout raises TimeoutError and a cancel raises CancelledError, and both kill the process
+    tree first. Without cwd it runs in an empty temp folder, so no project files leak in.
+    """
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as empty:
+        proc = _spawn(args, cwd or empty)
+        try:
+            out, err = await asyncio.wait_for(asyncio.to_thread(proc.communicate, stdin), timeout)
+        except BaseException:  # TimeoutError or CancelledError: stop the CLI, then pass it on
+            _stop(proc)
+            raise
+        return subprocess.CompletedProcess(args, proc.returncode, out, err)
+
+
+def _run(args: list[str], stdin: str | None = None, timeout: float = 30) -> subprocess.CompletedProcess:
+    """Quick blocking check (sign-in status), in an empty folder."""
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as empty:
         return subprocess.run(args, input=stdin, capture_output=True, text=True, encoding="utf-8",
-                              errors="replace", timeout=timeout, cwd=cwd or empty, check=False,
+                              errors="replace", timeout=timeout, cwd=empty, check=False,
                               creationflags=NO_WINDOW)
 
+
+# ---- who is signed in --------------------------------------------------------------------
 
 def signed_in(m: Manager) -> bool:
     cli = m.cli()
@@ -84,10 +142,32 @@ def signed_in(m: Manager) -> bool:
         return False
 
 
+# Every workflow, research, code and Evolve run asks who is signed in. Each answer costs a
+# Node process start (~0.5-1s), so remember it for a minute. Signing in, installing or
+# changing the lead forgets it, so those changes show up right away.
+_seen: dict[str, tuple[float, bool]] = {}
+
+
+def forget() -> None:
+    """Drop the remembered sign-in answers."""
+    _seen.clear()
+
+
+def is_signed_in(m: Manager, fresh: bool = False) -> bool:
+    hit = _seen.get(m.id)
+    if hit and not fresh and time.monotonic() - hit[0] < SEEN_TTL_S:
+        return hit[1]
+    ok = signed_in(m)
+    _seen[m.id] = (time.monotonic(), ok)
+    return ok
+
+
 def state(m: Manager) -> dict:
+    # The Accounts page always checks for real (it polls while you sign in) and refreshes
+    # the remembered answer for everyone else.
     cli = m.cli()
     return {"id": m.id, "name": m.name, "title": m.title, "plan": m.plan, "installed": bool(cli),
-            "signed_in": bool(cli) and signed_in(m), "package": m.package}
+            "signed_in": bool(cli) and is_signed_in(m, fresh=True), "package": m.package}
 
 
 def open_sign_in(m: Manager) -> None:
@@ -96,6 +176,7 @@ def open_sign_in(m: Manager) -> None:
     cli = m.cli()
     if not cli:
         raise RuntimeError(f"{m.name}'s helper isn't installed yet: press Install first")
+    forget()
     args = {"claude": [cli, "auth", "login"], "chatgpt": [cli, "login"]}[m.id]
     flags = subprocess.CREATE_NEW_CONSOLE if sys.platform == "win32" else 0
     subprocess.Popen(args, creationflags=flags)
@@ -105,6 +186,7 @@ def install(m: Manager) -> str:
     npm = shutil.which("npm") or shutil.which("npm.cmd")
     if not npm:
         raise RuntimeError("Installing needs Node.js first (free, nodejs.org).")
+    forget()
     out = subprocess.run([npm, "install", "-g", m.package], capture_output=True, text=True,
                          timeout=900, check=False, creationflags=NO_WINDOW)
     if out.returncode != 0 or not m.cli():
@@ -112,12 +194,26 @@ def install(m: Manager) -> str:
     return m.cli() or ""
 
 
+async def connected() -> list[Manager]:
+    """Signed-in managers. The checks run side by side, and answers are reused for a minute."""
+    flags = await asyncio.gather(*(asyncio.to_thread(is_signed_in, m) for m in MANAGERS.values()))
+    return [m for m, ok in zip(MANAGERS.values(), flags, strict=True) if ok]
+
+
+# ---- asking -------------------------------------------------------------------------------
+
+READ_TOOLS = ["Read", "Glob", "Grep"]
+NO_CHANGES = ["Edit", "Write", "NotebookEdit", "Bash"]
+
+
 def _args(m: Manager, cli: str, web: bool, images: list[Path] = (), read: bool = False) -> list[str]:
     if m.id == "claude":
         args = [cli, "-p", "--output-format", "json", "--no-session-persistence"]
-        tools = (["WebSearch", "WebFetch"] if web else []) + (["Read", "Glob", "Grep"] if read
+        tools = (["WebSearch", "WebFetch"] if web else []) + (READ_TOOLS if read
                                                               else ["Read"] if images else [])
         args += [a for d in {str(i.parent) for i in images} for a in ("--add-dir", d)]
+        if read:  # reading a real folder: belt and braces, it may look but never change
+            args += ["--disallowedTools", *NO_CHANGES]
         return args + (["--allowedTools", *tools] if tools else [])
     return [cli, *(["--search"] if web else []), "exec", "--skip-git-repo-check", "--ephemeral",
             "-s", "read-only", *[a for i in images for a in ("-i", str(i))], "-"]
@@ -127,33 +223,33 @@ async def ask(m: Manager, prompt: str, *, web: bool = False, timeout: float = TI
               images: list[Path] = (), cwd: Path | None = None) -> str:
     """One question to this manager, answered with your own plan. web=True lets it search
     the live web itself; images are attached (ChatGPT) or read from disk (Claude); cwd lets
-    it read (never change) the files in that folder. Raises RuntimeError with a plain reason."""
+    it read (never change) the files in that folder. Raises RuntimeError with a plain reason.
+    Cancelling the call stops the CLI too."""
     cli = m.cli()
     if not cli:
         raise RuntimeError(f"{m.name} isn't connected: install and sign in under Accounts")
     if images and m.id == "claude":
         prompt += "\n\nThe image(s): " + ", ".join(str(i) for i in images) + " (open them with Read)."
     try:
-        args = _args(m, cli, web, images, read=cwd is not None)
-        out = await asyncio.wait_for(asyncio.to_thread(_run, args, prompt, timeout, cwd), timeout + 5)
-    except (subprocess.TimeoutExpired, TimeoutError) as e:
+        out = await run_process(_args(m, cli, web, images, read=cwd is not None), prompt, timeout, cwd)
+    except TimeoutError as e:
         raise RuntimeError(f"{m.name} didn't answer within {timeout:.0f}s") from e
+    except OSError as e:
+        forget()  # the CLI vanished (uninstalled?): check again next time
+        raise RuntimeError(f"{m.name} couldn't start: {e}") from e
     if m.id == "claude":
         try:
             data = json.loads(out.stdout[out.stdout.find("{"):] if "{" in out.stdout else out.stdout)
         except ValueError as e:
+            forget()  # often "not signed in any more"
             raise RuntimeError(f"{m.name}: {(out.stderr or out.stdout).strip()[-300:] or 'no answer'}") from e
         if data.get("is_error"):
             raise RuntimeError(f"{m.name}: {data.get('result') or 'error'}")
         return str(data.get("result") or "").strip()
     if out.returncode != 0 and not out.stdout.strip():
+        forget()
         raise RuntimeError(f"{m.name}: {out.stderr.strip()[-300:] or 'error'}")
     return out.stdout.strip()
-
-
-async def connected() -> list[Manager]:
-    flags = await asyncio.gather(*(asyncio.to_thread(signed_in, m) for m in MANAGERS.values()))
-    return [m for m, ok in zip(MANAGERS.values(), flags, strict=True) if ok]
 
 
 # ---- who leads -----------------------------------------------------------------------
@@ -178,6 +274,7 @@ def chosen() -> str:
 def choose(mid: str) -> str:
     if mid not in ("chatgpt", "claude"):
         raise ValueError("the lead manager is ChatGPT or Claude")
+    forget()  # the owner is looking at the team again: re-check who is really there
     f = _settings_file()
     try:
         data = json.loads(f.read_text(encoding="utf-8"))

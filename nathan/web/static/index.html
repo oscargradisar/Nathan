@@ -237,6 +237,7 @@
       <div class="row">
         <button id="ev-go" class="go small">Improve</button>
         <button id="ev-auto" class="mini">✦ Let Nathan choose</button>
+        <button id="ev-suggest" class="mini" title="Claude reads the source (read-only) and proposes improvements">✦ Ask Claude for ideas</button>
         <span class="spacer"></span>
         <label class="muted" for="ev-rounds">Autopilot</label>
         <select id="ev-rounds" class="mini"><option value="2">2 rounds</option><option value="3" selected>3 rounds</option><option value="5">5 rounds</option><option value="10">10 rounds</option></select>
@@ -245,6 +246,7 @@
       </div>
       <div class="muted" id="ev-pilot-note"></div>
     </div>
+    <div class="ev-ideas" id="ev-ideas" aria-label="Improvement ideas" hidden></div>
     <div class="row ev-restart" id="ev-restart-row" hidden>
       <span>Changes were applied to Nathan's source.</span><button id="ev-restart" class="go small">Rebuild &amp; restart</button>
     </div>

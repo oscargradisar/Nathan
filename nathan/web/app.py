@@ -80,6 +80,7 @@ class CanvasIn(BaseModel):
 class EvolveIn(BaseModel):
     goal: str = ""   # empty: Nathan picks the improvement itself
     rounds: int = 1  # more than 1: autopilot, applying each change whose tests pass
+    idea: str = ""   # the id of a suggested idea being built (it leaves the list)
 
 
 class ScheduleIn(BaseModel):
@@ -369,12 +370,18 @@ def create_app(engine, hub: Hub | None = None, self_check: bool = False) -> Fast
         if body.rounds > 1:
             _evolve_call(evolver.start_autopilot, body.rounds, body.goal[:2000])
             return evolver.status()
-        return _evolve_call(evolver.start, body.goal[:2000]).public()
+        return _evolve_call(evolver.start, body.goal[:2000], body.idea[:40]).public()
+
+    @app.post("/api/evolve-suggest")
+    async def evolve_suggest() -> dict:  # Claude reads the source (read-only) and proposes ideas
+        _evolve_call(evolver.start_suggest)
+        return evolver.status()
 
     @app.post("/api/evolve/{job_id}/{action}")
     async def evolve_decide(job_id: str, action: str) -> dict:
         if action not in ("apply", "discard"):
             raise HTTPException(404, "unknown action")
+        # git work runs in a thread; discard hands the task's cancel back to this loop itself
         return (await asyncio.to_thread(_evolve_call, getattr(evolver, action), job_id)).public()
 
     @app.post("/api/evolve-autopilot/stop")
