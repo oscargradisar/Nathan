@@ -206,9 +206,10 @@ class Engine:
             return ans
         if mode == "agent":
             from nathan.agent import AGENT_SYSTEM, run_agent
+            from nathan.jobs import workspace
             from nathan.tools import default_toolbox
 
-            toolbox = default_toolbox(self.memory, self.workspace, self)
+            toolbox = default_toolbox(self.memory, workspace(self.workspace), self)
             chain = self.chain(tags or ["tools", "reasoning"], models)
             messages = [{"role": "system", "content": AGENT_SYSTEM}] + messages
             r = await run_agent(self.client, chain, messages, toolbox, max_steps=max_steps,

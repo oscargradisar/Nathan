@@ -57,6 +57,7 @@ class Run:
     final: str = ""
     finished: bool = False
     workflow: Any = None  # nathan.workflow.Workflow, kept so a prayer can be answered later
+    job: dict | None = None  # the Jobs-page job this run belongs to (keeps its memory apart)
     _subscribers: list[asyncio.Queue] = field(default_factory=list)
     _task: asyncio.Task | None = None
 
@@ -91,12 +92,13 @@ class RunManager:
         return self.runs.get(run_id)
 
     def start(self, prompt: str, mode: str = "vote", models: list[str] | None = None,
-              n: int = 5, images: list | None = None) -> Run:
+              n: int = 5, images: list | None = None, job: dict | None = None) -> Run:
         run = Run(uuid.uuid4().hex[:10], prompt, mode)
+        run.job = job
         self.runs[run.id] = run
         if len(self.runs) > self.keep:
             self.runs.pop(next(iter(self.runs)))
-        run._task = asyncio.create_task(self._execute(run, models, n, images or []))
+        run._task = asyncio.create_task(self._execute(run, models, n, images or [], job))
         return run
 
     async def _see(self, run: Run, images: list) -> None:
@@ -117,7 +119,13 @@ class RunManager:
             raise NoModelAvailable(str(e)) from e
         run.prompt = vision.brief(run.prompt, list(seen))
 
-    async def _execute(self, run: Run, models: list[str] | None, n: int, images: list | None = None) -> None:
+    async def _execute(self, run: Run, models: list[str] | None, n: int, images: list | None = None,
+                       job: dict | None = None) -> None:
+        from nathan import jobs
+
+        jobs.current.set(job)  # this task and everything it starts now belong to the job
+        if job:
+            run.prompt = f"{run.prompt}\n\n({jobs.brief(job)})"
         try:
             if images:
                 await self._see(run, images)

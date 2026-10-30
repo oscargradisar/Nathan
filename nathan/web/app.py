@@ -19,6 +19,8 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import subprocess
+import sys
 import webbrowser
 from pathlib import Path
 
@@ -43,6 +45,7 @@ class RunIn(BaseModel):
     models: list[str] | None = None
     n: int = 5
     images: list[str] = []  # data: URLs dropped or pasted into the console
+    job: str | None = None  # Jobs-page job id: keeps memory, files and history apart
 
 
 class ManualIn(BaseModel):
@@ -61,6 +64,12 @@ class CameraOpenIn(BaseModel):
 
 class SettingsIn(BaseModel):
     manager: str
+
+
+class JobIn(BaseModel):
+    name: str | None = None
+    notes: str | None = None
+    archived: bool | None = None
 
 
 class CanvasIn(BaseModel):
@@ -260,6 +269,60 @@ def create_app(engine, hub: Hub | None = None, self_check: bool = False) -> Fast
         # Memory, history and quota are written to SQLite as they happen; nothing is pending.
         app.state.quit = True
         return {"quitting": True}
+
+    # ---- Jobs: separate pieces of work that never mix ----------------------------------------
+    from nathan.jobs import JobStore
+
+    job_store = app.state.jobs = JobStore(engine.data)
+
+    @app.get("/api/jobs")
+    def jobs_list(archived: bool = False) -> dict:
+        rows = engine.memory.db.execute(
+            "SELECT json_extract(meta, '$.job'), COUNT(*), MAX(ts) FROM entries "
+            "WHERE kind = 'question' AND json_extract(meta, '$.job') IS NOT NULL GROUP BY 1").fetchall()
+        stats = {r[0]: {"asks": r[1], "last": r[2]} for r in rows}
+        return {"jobs": [{**j, **stats.get(j["id"], {"asks": 0, "last": None})} for j in job_store.list(archived)]}
+
+    @app.post("/api/jobs")
+    def jobs_create(body: JobIn) -> dict:
+        try:
+            return job_store.create(body.name or "", body.notes or "")
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from e
+
+    @app.post("/api/jobs/{job_id}")
+    def jobs_update(job_id: str, body: JobIn) -> dict:
+        try:
+            return job_store.update(job_id, **body.model_dump())
+        except KeyError as e:
+            raise HTTPException(404, "no such job") from e
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from e
+
+    @app.get("/api/jobs/{job_id}/history")
+    def jobs_history(job_id: str) -> dict:
+        rows = engine.memory._rows(
+            "SELECT id, ts, session, kind, content, meta FROM entries WHERE kind = 'answer' "
+            "AND json_extract(meta, '$.job') = ? ORDER BY id DESC LIMIT 100", (job_id,))
+        return {"items": [{"ts": e.ts, "text": e.content[:4000]} for e in rows]}
+
+    @app.post("/api/jobs/{job_id}/folder")
+    def jobs_folder(job_id: str) -> dict:  # plain def: FastAPI runs it off the event loop
+        from nathan import jobs
+
+        try:
+            token = jobs.current.set(job_store.get(job_id))
+        except KeyError as e:
+            raise HTTPException(404, "no such job") from e
+        try:
+            folder = jobs.workspace(Path(engine.workspace))
+        finally:
+            jobs.current.reset(token)
+        if sys.platform == "win32":
+            os.startfile(folder)
+        else:
+            subprocess.run(["open" if sys.platform == "darwin" else "xdg-open", str(folder)], check=False)
+        return {"path": str(folder)}
 
     @app.get("/api/canvas")
     def canvas_status() -> dict:
@@ -480,8 +543,12 @@ def create_app(engine, hub: Hub | None = None, self_check: bool = False) -> Fast
             images = vision.save(body.images, engine.data / "uploads") if body.images else []
         except ValueError as e:
             raise HTTPException(400, str(e)) from e
+        try:
+            job = job_store.get(body.job) if body.job else None
+        except KeyError as e:
+            raise HTTPException(404, "that job no longer exists") from e
         run = runs.start(body.prompt.strip() or "What's in this image? Explain what matters.",
-                         body.mode, body.models, max(1, min(body.n, 16)), images)
+                         body.mode, body.models, max(1, min(body.n, 16)), images, job)
         return {"id": run.id, "manual_prompt": manual_prompt(body.prompt), "sites": SITES}
 
     @app.get("/api/runs/{run_id}/events")

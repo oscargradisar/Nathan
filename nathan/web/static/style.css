@@ -375,3 +375,20 @@ figure { margin: 0; }
 .ev-detail summary { cursor: pointer; font: 12px var(--mono); color: var(--dim); }
 .ev-log, .diff { max-height: 420px; overflow: auto; }
 .diff .add { color: #4ade80; } .diff .del { color: #ff7a8a; } .diff .hunk { color: var(--cyan); }
+
+/* Jobs */
+.job-pick { font: 12px var(--mono); background: transparent; color: var(--dim); border: 1px solid var(--line2); border-radius: 9px; padding: 7px 8px; max-width: 180px; }
+.job-pick option { background: var(--bg2); color: var(--text); }
+.job-new, .job-list { max-width: 980px; }
+.job-new { display: flex; flex-direction: column; gap: 8px; }
+.job-new input, .job-new textarea, .job textarea { background: transparent; color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font: 14px var(--sans); resize: vertical; }
+.job-new input { font: 600 15px var(--mono); }
+.job-list { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+.job.active { border-color: var(--cyan-d); box-shadow: 0 0 20px rgba(63,211,255,.08); }
+.job-top { display: flex; gap: 10px; align-items: center; }
+.job-name { all: unset; cursor: pointer; flex: 1; font: 600 15px var(--mono); letter-spacing: .04em; }
+.job-name:focus-visible { outline: 2px solid var(--cyan); outline-offset: 3px; border-radius: 4px; }
+.job-notes { margin-top: 4px; white-space: pre-wrap; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.job-body { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.job-history details { border-top: 1px solid var(--line); padding: 6px 0; }
+.job-history summary { cursor: pointer; }

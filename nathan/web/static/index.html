@@ -47,6 +47,7 @@
 
 <nav class="rail" aria-label="Sections">
   <a href="#console" data-view="console"><b>◎</b><span>Console</span></a>
+  <a href="#jobs" data-view="jobs"><b>▦</b><span>Jobs</span></a>
   <a href="#world" data-view="world"><b>◍</b><span>World</span></a>
   <a href="#code" data-view="code"><b>⌘</b><span>Code</span></a>
   <a href="#staff" data-view="staff"><b>▲</b><span>Staff</span></a>
@@ -79,6 +80,8 @@
           <div class="cmd-row">
             <div class="modes" id="modes" role="radiogroup" aria-label="How Nathan should work"></div>
             <div class="cmd-actions">
+              <label class="sr-only" for="job-pick">Job</label>
+              <select id="job-pick" class="job-pick" title="Which job this belongs to: each job keeps its own memory, files and history"></select>
               <button type="button" id="attach-btn" class="icon-btn" title="Add images (or drop / paste them here)" aria-label="Add images">📎</button>
               <input type="file" id="attach-file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>
               <button type="button" id="mic" class="icon-btn" title="Speak your request" aria-label="Speak your request">🎙</button>
@@ -214,6 +217,17 @@
     <div id="diag-units" class="units compact"></div>
     <pre id="diag-report" class="report" hidden></pre>
   </section>
+  <section class="view" id="view-jobs" aria-label="Jobs" hidden>
+    <div class="view-head"><h1>Jobs</h1><p class="muted">Keep separate work separate. Each job (a class, a project, a trip) has its own memory, files folder and history, and its notes ride along with every request. Pick a job in the console's job menu and everything you ask stays inside it. Nothing from one job shows up in another.</p></div>
+    <form id="job-form" class="panel job-new" autocomplete="off">
+      <input id="job-name" maxlength="80" placeholder="New job name, e.g. CHEM 1111 labs" aria-label="New job name" required>
+      <textarea id="job-notes" rows="2" placeholder="Notes for Nathan (optional): course, teacher, deadlines, how you like things done" aria-label="Job notes"></textarea>
+      <div class="row"><button class="go small" type="submit">Create job</button><span class="spacer"></span>
+        <button type="button" id="job-archived" class="toggle" aria-pressed="false">Show archived</button></div>
+    </form>
+    <div id="job-list" class="job-list"></div>
+  </section>
+
   <section class="view" id="view-evolve" aria-label="Evolve" hidden>
     <div class="view-head"><h1>Evolve</h1><p class="muted">Nathan improves its own code. Your lead manager builds the change on a separate copy, the full test suite checks it, and you apply it with one click, or let Autopilot keep going and apply whatever passes. Nothing touches your working copy until a change passes and is applied.</p>
       <p class="muted" id="ev-source"></p></div>

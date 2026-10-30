@@ -4,6 +4,7 @@ import { boot, errorLine, finalLine, quip, startLine } from "./quips.js";
 import { play } from "./sound.js";
 import { canListen, listen, say, stop as stopSpeech } from "./voice.js";
 import { doubleStrike, strike } from "./fx.js";
+import { activeJob } from "./jobs.js";
 
 export const MODES = [
   { id: "auto", label: "Auto", help: "Nathan decides: a quick model for small things, the whole company for big ones." },
@@ -162,7 +163,7 @@ async function start() {
   play("start"); say_(startLine());
   strike($("core"), { big: true });
   try {
-    run = await api("/api/runs", { prompt, mode, n: 5, images });
+    run = await api("/api/runs", { prompt, mode, n: 5, images, job: activeJob()?.id || null });
     images = []; paintImages();
   } catch (e) {
     busy(false); play("error"); say_(errorLine(e.message)); toast(e.message); return;

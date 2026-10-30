@@ -117,6 +117,10 @@ class Memory:
         self.session = session or uuid.uuid4().hex[:8]
 
     def add(self, kind: str, content: str, meta: dict | None = None) -> int:
+        from nathan.jobs import current
+
+        if (job := current.get()) and "job" not in (meta or {}):
+            meta = {**(meta or {}), "job": job["id"]}  # tagged, so jobs never recall each other
         cur = self.db.execute(
             "INSERT INTO entries (ts, session, kind, content, meta) VALUES (?,?,?,?,?)",
             (time.time(), self.session, kind, content, json.dumps(meta or {})),
@@ -147,14 +151,21 @@ class Memory:
         q = fts_query(text)
         if not q:
             return []
+        from nathan.jobs import current
+
+        job = current.get()
         marks = ",".join("?" * len(kinds))
+        # Inside a job: only that job's entries. Outside: only entries from no job.
+        scope = "AND json_extract(e.meta, '$.job') = ? " if job else "AND json_extract(e.meta, '$.job') IS NULL "
         sql = (
             f"SELECT e.id, e.ts, e.session, e.kind, e.content, e.meta FROM entries_fts f "
             f"JOIN entries e ON e.id = f.rowid WHERE entries_fts MATCH ? AND e.kind IN ({marks}) "
+            + scope
             + ("AND e.session != ? " if exclude_session else "")
             + "ORDER BY bm25(entries_fts) LIMIT ?"
         )
-        args: tuple = (q, *kinds) + ((exclude_session,) if exclude_session else ()) + (k,)
+        args: tuple = ((q, *kinds) + ((job["id"],) if job else ())
+                       + ((exclude_session,) if exclude_session else ()) + (k,))
         return self._rows(sql, args)
 
     def count(self) -> int:
