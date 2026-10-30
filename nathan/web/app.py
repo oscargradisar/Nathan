@@ -90,6 +90,7 @@ def create_app(engine, hub: Hub | None = None, self_check: bool = False) -> Fast
 
     app = FastAPI(title="Nathan", docs_url=None, redoc_url=None, lifespan=lifespan)
     app.state.roll_call = None
+    app.state.quit = False  # set by Save & exit; the desktop window loop watches it
     runs = RunManager(engine)
     hub = hub or Hub(engine.providers)
     app.state.engine, app.state.runs, app.state.hub = engine, runs, hub
@@ -241,6 +242,12 @@ def create_app(engine, hub: Hub | None = None, self_check: bool = False) -> Fast
         else:
             subprocess.run(["open" if sys.platform == "darwin" else "xdg-open", str(folder)], check=False)
         return {"path": str(folder)}
+
+    @app.post("/api/quit")
+    def quit_app() -> dict:
+        # Memory, history and quota are written to SQLite as they happen; nothing is pending.
+        app.state.quit = True
+        return {"quitting": True}
 
     @app.get("/api/settings")
     def settings() -> dict:

@@ -327,3 +327,18 @@ figure { margin: 0; }
 .w-read { font: 12.5px var(--mono); color: var(--text); margin-top: 6px; min-height: 1.5em; }
 .w-src { font-size: 11px; margin: 8px 0 0; }
 .g-tip { font: 12px var(--mono); background: rgba(4,9,15,.92); border: 1px solid var(--cyan-d); padding: 5px 8px; border-radius: 6px; color: var(--text); }
+
+/* settings menu (header) */
+.menu { position: relative; margin-left: auto; }
+.menu-panel { position: absolute; right: 0; top: calc(100% + 8px); z-index: 50; min-width: 260px; display: flex; flex-direction: column; gap: 8px;
+  padding: 14px; background: var(--bg2, #08121c); border: 1px solid var(--line2); border-radius: 12px; box-shadow: 0 12px 40px #0008; }
+.menu-panel[hidden] { display: none; }
+.menu-panel .toggles { flex-wrap: wrap; }
+.menu-label { font: 11px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-top: 4px; }
+.menu-item { font: 13px var(--mono); text-align: left; background: transparent; color: var(--dim); border: 1px solid var(--line); border-radius: 8px;
+  padding: 7px 10px; cursor: pointer; text-decoration: none; display: flex; justify-content: space-between; align-items: center; }
+.menu-item:hover, .menu-item:focus-visible { color: var(--text, #fff); border-color: var(--line2); }
+.menu-item.quit { color: #ff7a8a; border-color: #ff7a8a55; margin-top: 4px; }
+.menu-item kbd { font: 11px var(--mono); color: var(--muted); }
+.bye { position: fixed; inset: 0; z-index: 100; display: grid; place-content: center; text-align: center; gap: 12px; background: #02060a; color: var(--dim); }
+.bye[hidden] { display: none; }

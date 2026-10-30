@@ -91,3 +91,16 @@ def test_starts_without_a_console(tmp_path, monkeypatch):
     sys.stdout.close()
     assert opened and opened[0].startswith("http://127.0.0.1:")
     assert (tmp_path / "nathan.log").exists()
+
+
+def test_save_and_exit_closes_the_window(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    closed, popen = [], []
+    monkeypatch.setattr(desktop.sys, "platform", "win32")
+    monkeypatch.setattr(desktop, "edge_path", lambda: "edge.exe")
+    monkeypatch.setattr(desktop.subprocess, "Popen", lambda args: popen.append(args))
+    monkeypatch.setattr(desktop, "close_edge_profile", closed.append)
+    app = SimpleNamespace(state=SimpleNamespace(quit=True, last_seen=desktop.time.monotonic()))
+    desktop.open_window("http://127.0.0.1:1/", tmp_path, app)  # returns at once: quit was asked
+    assert popen and closed == [tmp_path / "window"]

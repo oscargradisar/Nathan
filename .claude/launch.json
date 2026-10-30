@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "nathan-web",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "python", "-c", "from nathan.web.app import serve; serve(open_browser=False)"],
+      "port": 8765
+    }
+  ]
+}

@@ -200,3 +200,11 @@ def test_connect_wizard_endpoints(web, monkeypatch):
 def test_manual_prompt_text():
     p = manual_prompt("  Explain X  ")
     assert p.endswith("TASK:\nExplain X\n")
+
+
+def test_save_and_exit_flags_the_app(web):
+    client, _ = web(lambda *a, **k: "ok")
+    with client:
+        assert client.app.state.quit is False
+        assert client.post("/api/quit", json={}, headers=H).json() == {"quitting": True}
+        assert client.app.state.quit is True

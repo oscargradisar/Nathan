@@ -65,7 +65,7 @@ async function boot() {
   toggle($("t-voice"), voiceOn, setVoice, "Voice");
   toggle($("t-bolt"), lightningOn, (on) => { setLightning(on); if (on) setTimeout(() => strike($("core"), { big: true }), 50); }, "Lightning");
   initMorphy();
-  initLead();
+  initLead(); initMenu();
   await refreshStatus().catch(() => null);
   const booting = bootScreen(status);
   await refreshStaff().catch(() => null);
@@ -116,6 +116,28 @@ async function boot() {
     store.set("seen-tips", true);
   }
 }
+function initMenu() {
+  const btn = $("menu-btn"), panel = $("menu");
+  const open = (on) => { panel.hidden = !on; btn.setAttribute("aria-expanded", String(on)); if (on) play("click"); };
+  btn.onclick = (e) => { e.stopPropagation(); open(panel.hidden); };
+  panel.onclick = (e) => { if (e.target.closest("a")) open(false); };
+  document.addEventListener("click", (e) => { if (!panel.hidden && !panel.contains(e.target)) open(false); });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !panel.hidden) { open(false); btn.focus(); }
+    if (e.ctrlKey && e.key === ",") { e.preventDefault(); open(panel.hidden); }
+    if (e.ctrlKey && e.key.toLowerCase() === "q") { e.preventDefault(); quit(); }
+  });
+  $("quit").onclick = quit;
+}
+
+async function quit() {
+  const running = (await api("/api/status").catch(() => ({}))).active_runs || 0;
+  if (running && !confirm(`${running} task${running > 1 ? "s are" : " is"} still running and will stop. Exit anyway?`)) return;
+  await api("/api/quit", {}).catch(() => null);
+  $("bye").hidden = false;
+  window.close();  // works in Nathan's own window; elsewhere the goodbye screen stays
+}
+
 async function initLead() {
   const paint = (m) => { for (const b of $("lead").querySelectorAll("button")) b.setAttribute("aria-checked", String(b.dataset.m === m)); };
   const s = await api("/api/settings").catch(() => ({ manager: "chatgpt" }));

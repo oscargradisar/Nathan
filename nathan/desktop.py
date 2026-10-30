@@ -24,20 +24,24 @@ IDLE_QUIT_S = 90
 _camera_process = None
 
 
+def close_edge_profile(profile: Path) -> None:
+    """Close only the Edge window running on one of Nathan's private profiles (Windows)."""
+    # Edge can relaunch or forward to an existing process; identify our private profile.
+    env = {**os.environ, "NATHAN_CAMERA_PROFILE": str(profile)}
+    subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command",
+                    ("Get-CimInstance Win32_Process -Filter \"name = 'msedge.exe'\" | "
+                    "Where-Object { $_.CommandLine -and "
+                    "$_.CommandLine.Contains($env:NATHAN_CAMERA_PROFILE) -and "
+                    "$_.CommandLine -notlike '*--type=*' } | "
+                    "ForEach-Object { taskkill /PID $_.ProcessId /T /F | Out-Null }")],
+                   env=env, creationflags=0x08000000, capture_output=True, check=False)
+
+
 def close_camera_window() -> None:
     """Close only the dedicated camera browser process owned by Nathan."""
     global _camera_process
     if sys.platform == "win32":
-        # Edge can relaunch or forward to an existing process; identify our private profile.
-        env = {**os.environ, "NATHAN_CAMERA_PROFILE": str(
-            Path(user_data_dir("Nathan", appauthor=False)) / "camera-viewer")}
-        subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command",
-                        ("Get-CimInstance Win32_Process -Filter \"name = 'msedge.exe'\" | "
-                        "Where-Object { $_.CommandLine -and "
-                        "$_.CommandLine.Contains($env:NATHAN_CAMERA_PROFILE) -and "
-                        "$_.CommandLine -notlike '*--type=*' } | "
-                        "ForEach-Object { taskkill /PID $_.ProcessId /T /F | Out-Null }")],
-                       env=env, creationflags=0x08000000, capture_output=True, check=False)
+        close_edge_profile(Path(user_data_dir("Nathan", appauthor=False)) / "camera-viewer")
     elif _camera_process is not None and _camera_process.poll() is None:
         _camera_process.terminate()
     _camera_process = None
@@ -129,13 +133,21 @@ def open_window(url: str, home: Path, app) -> None:
         # process we treat "the page stopped polling" as "the window was closed".
         subprocess.Popen([edge, f"--app={url}", f"--user-data-dir={home / 'window'}",
                           "--no-first-run", "--window-size=1280,860"])
-        while time.monotonic() - app.state.last_seen < IDLE_QUIT_S:
-            time.sleep(2)
+        while not app.state.quit and time.monotonic() - app.state.last_seen < IDLE_QUIT_S:
+            time.sleep(0.5)
+        if app.state.quit:  # Save & exit: the page asked, so close its window for it
+            close_edge_profile(home / "window")
         return
     import webview  # macOS: native WebKit window
 
-    webview.create_window("Nathan", url, width=1280, height=860, min_size=(800, 600))
-    webview.start()
+    window = webview.create_window("Nathan", url, width=1280, height=860, min_size=(800, 600))
+
+    def watch_quit() -> None:  # Save & exit from the page closes the native window too
+        while not app.state.quit:
+            time.sleep(0.5)
+        window.destroy()
+
+    webview.start(watch_quit)
 
 
 def run_check(engine) -> dict:
