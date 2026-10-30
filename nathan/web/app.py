@@ -277,18 +277,19 @@ def create_app(engine, hub: Hub | None = None, self_check: bool = False) -> Fast
     def evolve_job(job_id: str) -> dict:
         return _evolve_call(evolver.get, job_id).public(full=True)
 
+    # async: these start background tasks, which need the server's event loop
     @app.post("/api/evolve")
-    def evolve_start(body: EvolveIn) -> dict:
+    async def evolve_start(body: EvolveIn) -> dict:
         if body.rounds > 1:
             _evolve_call(evolver.start_autopilot, body.rounds, body.goal[:2000])
             return evolver.status()
         return _evolve_call(evolver.start, body.goal[:2000]).public()
 
     @app.post("/api/evolve/{job_id}/{action}")
-    def evolve_decide(job_id: str, action: str) -> dict:
+    async def evolve_decide(job_id: str, action: str) -> dict:
         if action not in ("apply", "discard"):
             raise HTTPException(404, "unknown action")
-        return _evolve_call(getattr(evolver, action), job_id).public()
+        return (await asyncio.to_thread(_evolve_call, getattr(evolver, action), job_id)).public()
 
     @app.post("/api/evolve-autopilot/stop")
     def evolve_stop() -> dict:

@@ -84,3 +84,24 @@ def test_narrate_claude_stream():
             '{"type":"tool_use","name":"Edit","input":{"file_path":"C:/x/nathan/globe.py"}}]}}')
     assert evolve.narrate(line, "claude") == ["Fixing the bug", "→ Edit globe.py"]
     assert evolve.narrate('{"type":"result","result":"done\\nSUMMARY: faster"}', "claude") == ["SUMMARY: faster"]
+
+
+def test_page_can_start_and_discard_through_the_api(evolver, make_engine, monkeypatch):
+    # The page talks to the server: the background job must start on the server's loop.
+    import time
+
+    from fastapi.testclient import TestClient
+
+    from nathan.web.app import create_app
+
+    client = TestClient(create_app(make_engine(lambda *a, **k: "ok")))
+    with client:
+        client.app.state.evolver.__dict__.update(source=evolver.source, data=evolver.data)
+        job = client.post("/api/evolve", json={"goal": "print v2"}, headers={"x-nathan": "1"}).json()
+        for _ in range(100):
+            if client.get(f"/api/evolve/{job['id']}").json()["status"] in ("ready", "failed"):
+                break
+            time.sleep(0.05)
+        assert client.get(f"/api/evolve/{job['id']}").json()["status"] == "ready"
+        r = client.post(f"/api/evolve/{job['id']}/discard", headers={"x-nathan": "1"})
+        assert r.json()["status"] == "discarded"

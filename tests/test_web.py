@@ -153,6 +153,8 @@ def test_connect_wizard_endpoints(web, monkeypatch):
     providers = load_providers(DEFAULT_CONFIG, env_file=None)
     for p in providers.values():
         monkeypatch.delenv(p.key_env, raising=False)
+        for var in p.url_vars:  # e.g. CLOUDFLARE_ACCOUNT_ID, which another test may load from .env
+            monkeypatch.delenv(var, raising=False)
     client, _ = web(responder, providers)
 
     async def ok(p, key):

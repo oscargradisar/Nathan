@@ -104,8 +104,11 @@ def default_toolbox(memory=None, workspace=None, engine=None) -> Toolbox:
 
     box.add(Tool("findPublicCameras", "Load real public cameras for a location from OpenCCTV into "
                  "Nathan's globe. Automatically opens a feed inside World view. "
-                 "Use when asked for webcams/CCTV/cameras at a place; bounded to 50 results.",
-                 params(place=("string", "specific city, address or landmark")), findPublicCameras))
+                 "Use when asked for webcams/CCTV/cameras at a place; bounded to 50 results. "
+                 "Give `near` to open the working camera closest to a business, landmark or address.",
+                 params(["place"], place=("string", "the area: city, state/region, country"),
+                        near=("string", "optional landmark/business/address to be closest to")),
+                 findPublicCameras))
 
     box.add(Tool("filterMediaNodes", "Show/hide globe media and search nodes by region, category or country. "
                  "Returns IDs to use with flyToMediaNode. Empty filters reset the search.",
