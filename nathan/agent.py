@@ -101,7 +101,11 @@ def _text_messages(base: list[Message], steps: list[Step], toolbox: Toolbox) -> 
         msgs.insert(0, {"role": "system", "content": protocol})
     for s in steps:
         if s.kind == "call":
-            block = json.dumps({"name": s.name, "arguments": json.loads(s.arguments or "{}")})
+            try:
+                args: Any = json.loads(s.arguments or "{}")
+            except ValueError:  # a model sent broken JSON as native arguments: show it as sent
+                args = s.arguments
+            block = json.dumps({"name": s.name, "arguments": args})
             msgs.append({"role": "assistant", "content": f"```tool\n{block}\n```"})
         elif s.kind == "result":
             msgs.append({"role": "user", "content": f"TOOL RESULT ({s.name}):\n{s.content}"})

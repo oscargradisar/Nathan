@@ -19,7 +19,8 @@ depends_on) so they can run at the same time; only add a dependency when a subta
 needs another's output. Each instruction must be self-contained (the worker sees only
 its instruction plus the outputs of its dependencies). Do not add a final "write the
 answer" subtask: a separate writer combines everything using "synthesis".
-Optional tags per subtask pick a kind of model: fast, reasoning, code, writing, long_context.
+Optional tags per subtask pick a kind of model: fast, reasoning, code, writing, long_context,
+tools (the part needs live web pages, files or running code: its worker gets those tools).
 Reply with ONLY JSON:
 {{"goal": "...", "tasks": [{{"id": "t1", "instruction": "...", "depends_on": [], "tags": []}}],
   "synthesis": "how the writer should combine the results into the final answer"}}"""

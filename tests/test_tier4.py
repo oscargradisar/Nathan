@@ -154,6 +154,70 @@ async def test_agent_hands_over_to_next_model_mid_task(tmp_path):
     assert r.answer == "The file says 42." and r.models == ["alpha/a-big", "beta/b-big"]
 
 
+async def test_agent_survives_malformed_native_arguments(tmp_path):
+    """A model sends broken JSON as tool arguments, then the chain falls back to text mode:
+    replaying that call as text must not crash the agent."""
+    box = default_toolbox(workspace=tmp_path)
+
+    def responder(ref, messages, **kw):
+        if ref == "alpha/a-big":
+            if any(m["role"] == "tool" for m in messages):
+                return ProviderDown("gone")
+            return ChatResult("", "alpha", "a-big", tool_calls=[
+                {"id": "c1", "name": "read_file", "arguments": '{"path": "a.txt"'}])
+        if kw.get("tools"):
+            return BadRequest("no native tools here")
+        replayed = [m["content"] for m in messages if m["role"] == "assistant"]
+        assert "```tool" in replayed[0] and "a.txt" in replayed[0]  # the broken call, as sent
+        return "No such file, sorry."
+
+    r = await run_agent(ScriptedClient(responder), ["alpha/a-big", "beta/b-big"], "read a.txt", box)
+    assert r.answer == "No such file, sorry."
+
+
+async def test_sync_tools_run_off_the_event_loop():
+    import asyncio
+    import threading
+
+    from nathan.tools import Tool, Toolbox
+    from nathan.tools.base import params
+
+    seen = {}
+
+    def blocking(x: str) -> str:
+        seen["thread"] = threading.get_ident()
+        return x.upper()
+
+    async def coro(x: str) -> str:
+        return x * 2
+
+    box = Toolbox()
+    box.add(Tool("shout", "upper", params(x=("string", "x")), blocking))
+    box.add(Tool("twice", "double", params(x=("string", "x")), coro))
+    box.add(Tool("lazy", "returns a coroutine", params(x=("string", "x")), lambda x: coro(x)))
+    assert await box.call("shout", '{"x": "hi"}') == "HI"
+    assert seen["thread"] != threading.get_ident()  # ran in a worker thread
+    assert await box.call("twice", {"x": "ab"}) == "abab"
+    assert await box.call("lazy", {"x": "c"}) == "cc"
+    assert (await box.call("shout", {"y": 1})).startswith("ERROR: wrong arguments")
+    assert asyncio.get_running_loop()
+
+
+async def test_agent_research_tool_skips_premium_managers(make_engine, monkeypatch):
+    import nathan.research
+
+    got = {}
+
+    async def fake(engine, question, *a, **kw):
+        got.update(kw)
+        return {"answer": "found it"}
+
+    monkeypatch.setattr(nathan.research, "run_research", fake)
+    box = default_toolbox(engine=make_engine(lambda *a, **k: "x"))
+    assert await box.call("research", {"question": "q"}) == "found it"
+    assert got["team"] == []
+
+
 async def test_agent_step_limit(tmp_path):
     box = default_toolbox(workspace=tmp_path)
 

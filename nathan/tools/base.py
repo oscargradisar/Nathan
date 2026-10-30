@@ -8,6 +8,7 @@ the agent: the model just sees the error and can try something else.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -64,9 +65,14 @@ class Toolbox:
         except (ValueError, TypeError) as e:
             return f"ERROR: bad arguments for {name}: {e}"
         try:
-            out = tool.func(**args)
-            if asyncio.iscoroutine(out):
-                out = await out
+            if inspect.iscoroutinefunction(tool.func):
+                out = await tool.func(**args)
+            else:
+                # Plain functions (Discord typing, Start-menu scans, file searches) can take
+                # seconds; in a thread they don't freeze every other run and the live streams
+                out = await asyncio.to_thread(tool.func, **args)
+                if asyncio.iscoroutine(out):  # a lambda that returns a coroutine (run_python)
+                    out = await out
         except TypeError as e:
             return f"ERROR: wrong arguments for {name}: {e}"
         except Exception as e:  # noqa: BLE001 - report any tool failure back to the model
@@ -121,7 +127,9 @@ def default_toolbox(memory=None, workspace=None, engine=None) -> Toolbox:
         async def research(question: str) -> str:
             from nathan.research import run_research
 
-            return (await run_research(engine, question))["answer"]
+            # Free pipeline only: an agent may research many times per job, and each premium
+            # round would spend the owner's Claude/ChatGPT plan with nothing shown on screen
+            return (await run_research(engine, question, team=[]))["answer"]
 
         box.add(Tool("research", "Research a question properly: searches the web and many sources, several "
                      "models cross-check, returns a cited answer. Use for facts you aren't sure of.",

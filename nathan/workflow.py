@@ -13,8 +13,11 @@ hand-picks a worker for each, writes the final answer from their work and review
 ChatGPT steps in if Claude isn't signed in, and the free planner, writer and judges take
 over any step a manager can't do, so a job never stalls on the boss.
 
-Events: phase, plan, assigned, working, reassigned, delivered, task_failed, final,
-review, ratings, prayer, blessed, note.
+Parts tagged "tools" run through the agent loop (web pages, Python, workspace files); their
+tool calls show as "step" events with ids like "t1:tool1-call_0".
+
+Events: phase, plan, working, backup, reassigned, delivered, task_failed, step, final,
+review, redo, ratings, prayer, blessed, note.
 """
 
 from __future__ import annotations
@@ -31,18 +34,22 @@ from nathan import managers
 from nathan.errors import RECOVERABLE, NoModelAvailable
 from nathan.jsonutil import extract_json, race_json
 from nathan.patterns import fallback
-from nathan.planner import PLANNER_SYSTEM, Subtask, TaskGraph, plan
+from nathan.planner import MAX_TASKS, PLANNER_SYSTEM, Subtask, TaskGraph, plan
 from nathan.staff import START
 
 Emit = Callable[[dict[str, Any]], Awaitable[None] | None]
 MAX_TRIES = 5  # workers tried per task before giving up on it
 HEDGE_AFTER_S = 20.0  # no delivery after this long: a backup worker starts on the same part
 BENCH_BELOW = 150  # pick score this far under a new model's: benched (slow or unreliable)
-REDO_BELOW = 5
-SLOW_SCORE = 2.0  # what a worker scores when a backup had to finish its part  # parts the reviewer scores below this get redone once by someone else
+REDO_BELOW = 5  # parts the reviewer scores below this get redone once by someone else
+SLOW_SCORE = 2.0  # what a worker scores when a backup had to finish its part
+AGENT_STEPS = 6  # tool calls a "tools" part may make before it must answer
 
 WORKER_SYSTEM = ("You are one worker on a team of AI models. Do ONLY the part you are given, "
                  "thoroughly and factually. Say plainly if you are unsure of a fact.")
+TOOL_WORKER_SYSTEM = (WORKER_SYSTEM + " You have tools: read live web pages, run Python for exact "
+                      "answers and read the workspace files instead of guessing. When your part is "
+                      "done, reply with the result itself, not a description of what you did.")
 WRITER_SYSTEM = ("You are the lead writer. Turn the team's work into one coherent answer to "
                  "the original request. Resolve contradictions, cut repetition, keep it "
                  "well structured. Answer the person directly; don't mention the team.")
@@ -63,7 +70,9 @@ that run in parallel, and you decide who does what. The staff available right no
 
 For each subtask you may set "worker" to one of the models above (exact name) to
 hand-pick it: hard reasoning to high-Elo models, quick lookups to fast ones, and parallel
-parts spread across different providers. Leave "worker" as "" to let Nathan pick."""
+parts spread across different providers. Leave "worker" as "" to let Nathan pick.
+Tag a part "tools" when it must act rather than recall: read live web pages, run Python or
+read the person's workspace files. Its worker then gets those tools."""
 
 
 class Review(BaseModel):
@@ -85,9 +94,9 @@ class Workflow:
     final: str = ""
     writer: str = ""
     review: Review | None = None
-    round_one: list[tuple[str, float]] = field(default_factory=list)
+    round_one: list[tuple[str, float]] = field(default_factory=list)  # (worker, score) of redone parts
     team: list = field(default_factory=list)  # signed-in premium managers
-    slow: list[str] = field(default_factory=list)  # workers that needed a backup to cover them  # (worker, score) of redone parts
+    slow: list[str] = field(default_factory=list)  # workers that needed a backup to cover them
 
 
 async def _emit(emit: Emit | None, event: dict[str, Any]) -> None:
@@ -101,10 +110,13 @@ def assign(engine, graph: TaskGraph) -> dict[str, str]:
     """Give each task a worker: the best-rated model that fits its tags, spread so parallel
     tasks in a wave go to different models (and different providers when possible)."""
     out: dict[str, str] = {}
+    # The overlord's pick must be a real, usable model from providers.yaml: a made-up name
+    # would waste a request on a 404 and leave a ghost row on the Elo ladder.
+    staff = set(engine.roster.candidates(None))
     for wave in graph.waves():
         busy: set[str] = set()
         for task in wave:
-            if task.worker and task.worker not in busy and engine.roster.usable(task.worker):
+            if task.worker and task.worker not in busy and task.worker in staff:
                 out[task.id] = task.worker  # the overlord's pick
                 busy.add(task.worker)
                 continue
@@ -121,13 +133,29 @@ def assign(engine, graph: TaskGraph) -> dict[str, str]:
     return out
 
 
-def _worker_messages(wf: Workflow, task: Subtask) -> list:
+def _worker_messages(wf: Workflow, task: Subtask, feedback: str = "",
+                     system: str = WORKER_SYSTEM) -> list:
     parts = [f"THE PERSON'S REQUEST: {wf.prompt}", f"YOUR PART: {task.instruction}"]
     for dep in task.depends_on:
         if wf.results.get(dep):
             parts.append(f"--- WORK FROM {dep} ---\n{wf.results[dep]}")
-    return [{"role": "system", "content": WORKER_SYSTEM},
+    if feedback:  # a redo: the new worker learns why the first attempt fell short
+        parts.append(f"--- WHY THIS PART IS BEING REDONE ---\n{feedback}")
+    return [{"role": "system", "content": system},
             {"role": "user", "content": "\n\n".join(parts)}]
+
+
+def _redo_feedback(wf: Workflow, task: Subtask, score: float) -> str:
+    """What the reviewer said about a weak part, for the worker who redoes it."""
+    assert wf.review is not None
+    lines = [f"A reviewer scored the previous attempt {score:g}/10."]
+    if wf.review.summary:
+        lines.append(f"Review: {wf.review.summary}")
+    if wf.review.missing:
+        lines.append("Missing from the answer: " + "; ".join(wf.review.missing))
+    if wf.results.get(task.id):
+        lines.append(f"Previous attempt (do better than this):\n{wf.results[task.id][:2000]}")
+    return "\n".join(lines)
 
 
 async def hedged(engine, unit: str, chain: list[str], messages: list, emit: Emit | None,
@@ -196,14 +224,86 @@ async def hedged(engine, unit: str, chain: list[str], messages: list, emit: Emit
 
 
 async def _do_task(engine, wf: Workflow, task: Subtask, emit: Emit | None,
-                   avoid: tuple[str, ...] = ()) -> None:
+                   avoid: tuple[str, ...] = (), feedback: str = "") -> None:
     first = wf.assigned[task.id]
     chain = [first] + [r for r in engine.chain(task.tags or None) if r != first and r not in avoid]
     wf.no_shows.setdefault(task.id, [])
-    got = await hedged(engine, task.id, chain, _worker_messages(wf, task), emit, wf.no_shows[task.id],
-                       slow=wf.slow)
+    if "tools" in task.tags:  # this part has to act (web pages, Python, files), not just recall
+        await _do_tool_task(engine, wf, task, chain, emit, feedback)
+        return
+    got = await hedged(engine, task.id, chain, _worker_messages(wf, task, feedback), emit,
+                       wf.no_shows[task.id], slow=wf.slow)
     if got:
         wf.worker[task.id], wf.results[task.id] = got[0], got[1].text
+
+
+async def _do_tool_task(engine, wf: Workflow, task: Subtask, chain: list[str], emit: Emit | None,
+                        feedback: str = "") -> None:
+    """A part tagged "tools" runs through the agent loop (as agent mode does), so the worker
+    can fetch live pages, run Python and read workspace files. No hedging here: two agents
+    racing on the same part would do every action twice."""
+    from nathan.agent import run_agent
+    from nathan.jobs import workspace
+    from nathan.tools import default_toolbox, desktop
+
+    toolbox = default_toolbox(engine.memory, workspace(engine.workspace), engine)
+    # Parts run in parallel, so tools that drive the person's own screen and keyboard
+    # (apps, Discord, email) stay out: two agents typing at once would garble both.
+    for t in desktop.make_tools():
+        toolbox.tools.pop(t.name, None)
+
+    async def on_event(event: dict) -> None:  # tool steps show under this part on the board
+        await _emit(emit, {**event, "id": f"{task.id}:{event['id']}"})
+
+    await _emit(emit, {"type": "working", "id": task.id, "worker": chain[0], "role": "worker"})
+    start = time.perf_counter()
+    try:
+        r = await run_agent(engine.client, chain[:MAX_TRIES],
+                            _worker_messages(wf, task, feedback, TOOL_WORKER_SYSTEM), toolbox,
+                            max_steps=AGENT_STEPS, on_event=on_event)
+    except NoModelAvailable as e:
+        await _emit(emit, {"type": "task_failed", "id": task.id, "role": "worker",
+                           "reason": str(e)[:120]})
+        return
+    if not r.answer.strip():
+        await _emit(emit, {"type": "task_failed", "id": task.id, "role": "worker",
+                           "reason": "empty answer"})
+        return
+    ref, ms = r.models[-1], (time.perf_counter() - start) * 1000  # the model that answered
+    engine.staff.record(ref, ok=True, ms=ms)
+    engine.staff.log_work(ref, "worker", task.instruction, r.answer)
+    wf.worker[task.id], wf.results[task.id] = ref, r.answer
+    await _emit(emit, {"type": "delivered", "id": task.id, "worker": ref, "role": "worker",
+                       "text": r.answer, "seconds": round(ms / 1000, 1)})
+
+
+async def _run_tasks(engine, wf: Workflow, tasks: list[Subtask], emit: Emit | None,
+                     avoid: dict[str, str] | None = None,
+                     feedback: dict[str, str] | None = None) -> None:
+    """Start every task as soon as ITS OWN dependencies are finished, not when a whole wave
+    is: a part that needs t1 shouldn't wait for an unrelated t2 that is still hedging.
+
+    Each task is an asyncio task; a dependent first awaits the tasks it depends on (only
+    those in this batch: in a redo, the others already delivered). A dependency that failed
+    still counts as finished: the dependent runs without that input, as before."""
+    ids = {t.id for t in tasks}
+    running: dict[str, asyncio.Task] = {}
+
+    async def go(t: Subtask) -> None:
+        # All tasks are created below before any of them runs, so every dependency is there
+        deps = [running[d] for d in t.depends_on if d in ids]
+        if deps:
+            await asyncio.gather(*deps)
+        await _do_task(engine, wf, t, emit, avoid=tuple(filter(None, [(avoid or {}).get(t.id)])),
+                       feedback=(feedback or {}).get(t.id, ""))
+
+    for t in tasks:
+        running[t.id] = asyncio.create_task(go(t))
+    try:
+        await asyncio.gather(*running.values())
+    finally:  # one part crashed (or the run was stopped): don't leave the others running
+        for task in running.values():
+            task.cancel()
 
 
 async def _write(engine, wf: Workflow, emit: Emit | None, boss: managers.Manager | None = None) -> None:
@@ -254,11 +354,33 @@ def staff_sheet(engine, limit: int = 30) -> str:
     return "\n".join(lines) or "(no free workers connected)"
 
 
+def _parse_plan(text: str) -> TaskGraph:
+    """Claude's plan → TaskGraph, after fixing the two slips that are safe to fix here:
+    too many parts (keep the first MAX_TASKS) and dependencies on parts that don't exist."""
+    data = extract_json(text)
+    if isinstance(data, dict) and isinstance(data.get("tasks"), list):
+        tasks = [t for t in data["tasks"] if isinstance(t, dict)][:MAX_TASKS]
+        ids = {str(t.get("id", "")).strip() for t in tasks}
+        for t in tasks:
+            if isinstance(t.get("depends_on"), list):
+                t["depends_on"] = [d for d in t["depends_on"] if str(d).strip() in ids]
+        data["tasks"] = tasks
+    return TaskGraph.model_validate(data)
+
+
 async def _overlord_plan(engine, boss: managers.Manager, prompt: str) -> TaskGraph:
     schema = PLANNER_SYSTEM.replace('"tags": []}', '"tags": [], "worker": ""}')
-    text = await managers.ask(boss, f"{schema}\n\n{OVERLORD_SYSTEM.format(staff=staff_sheet(engine))}"
-                                    f"\n\nGOAL:\n{prompt}")
-    return TaskGraph.model_validate(extract_json(text))
+    brief = f"{schema}\n\n{OVERLORD_SYSTEM.format(staff=staff_sheet(engine))}\n\nGOAL:\n{prompt}"
+    text = await managers.ask(boss, brief)
+    try:
+        return _parse_plan(text)
+    except (ValueError, ValidationError) as e:
+        # A plan with one mistake (a cycle, a duplicate id) is still a plan: one second
+        # chance with the exact error beats throwing the whole Claude call away
+        text = await managers.ask(boss, f"{brief}\n\nYOUR LAST REPLY WAS REJECTED: {str(e)[:500]}\n"
+                                        f"Reply again with ONLY the corrected JSON.\n\n"
+                                        f"YOUR LAST REPLY:\n{text[:4000]}")
+        return _parse_plan(text)
 
 
 async def run_workflow(engine, prompt: str, emit: Emit | None = None, *,
@@ -289,8 +411,7 @@ async def run_workflow(engine, prompt: str, emit: Emit | None = None, *,
                                  for t in wf.graph.tasks]})
 
     await _emit(emit, {"type": "phase", "phase": "working"})
-    for wave in wf.graph.waves():
-        await asyncio.gather(*(_do_task(engine, wf, t, emit) for t in wave))
+    await _run_tasks(engine, wf, wf.graph.tasks, emit)
     if not wf.results:
         raise NoModelAvailable("no worker could do any part of the task")
 
@@ -310,15 +431,17 @@ async def run_workflow(engine, prompt: str, emit: Emit | None = None, *,
         await _emit(emit, {"type": "phase", "phase": "fixing"})
         await _emit(emit, {"type": "redo", "ids": [t.id for t in weak],
                            "scores": {t.id: first_scores[t.id] for t in weak}})
+        feedback = {t.id: _redo_feedback(wf, t, first_scores[t.id]) for t in weak}
+        avoid: dict[str, str] = {}
         for t in weak:
             before = wf.worker.get(t.id)
             if before:  # the round-one worker keeps its low score for Elo
                 wf.round_one.append((before, first_scores[t.id]))
+                avoid[t.id] = before
             wf.assigned[t.id] = next((r for r in sorted(engine.roster.candidates(t.tags or None)[:12],
                                                         key=lambda r: -engine.staff.priority(r))
                                       if r != before), before or "")
-        await asyncio.gather(*(_do_task(engine, wf, t, emit, avoid=(wf.worker.get(t.id, ""),))
-                               for t in weak))
+        await _run_tasks(engine, wf, weak, emit, avoid=avoid, feedback=feedback)
         await _emit(emit, {"type": "phase", "phase": "writing"})
         await _write(engine, wf, emit, boss)
         await _emit(emit, {"type": "phase", "phase": "reviewing"})
@@ -329,11 +452,33 @@ async def run_workflow(engine, prompt: str, emit: Emit | None = None, *,
     changes = engine.staff.rate(score_workers(wf))
     await _emit(emit, {"type": "ratings", "changes": {r: round(d, 1) for r, d in changes.items()}})
     if wf.review.prayer.strip() and not (boss and boss.id == "claude"):  # Claude already ran it
-        engine.memory.add("prayer", wf.review.prayer.strip(), {"prompt": prompt[:500]})
-        await _emit(emit, {"type": "prayer", "text": wf.review.prayer.strip(),
-                           "message": prayer_message(wf)})
+        await _pray(engine, wf, emit)
     await _emit(emit, {"type": "phase", "phase": "done"})
     return wf
+
+
+async def _pray(engine, wf: Workflow, emit: Emit | None) -> None:
+    """The team has a question for Claude. Signed in to Claude: Nathan asks it directly
+    (with web search) and revises the answer. Otherwise you carry it to claude.ai."""
+    assert wf.review is not None
+    engine.memory.add("prayer", wf.review.prayer.strip(), {"prompt": wf.prompt[:500]})
+    claude = next((m for m in wf.team if m.id == managers.CLAUDE.id), None)
+    if claude is not None:
+        await _emit(emit, {"type": "working", "id": "prayer", "worker": claude.name, "role": "prayer"})
+        try:
+            reply = (await managers.ask(claude, prayer_message(wf), web=True)).strip()
+            if not reply:
+                raise RuntimeError("empty answer")
+            await _emit(emit, {"type": "delivered", "id": "prayer", "worker": claude.name,
+                               "role": "prayer", "text": reply, "seconds": None})
+            await answer_prayer(engine, wf, reply, emit)
+            return
+        except (RuntimeError, NoModelAvailable) as e:
+            await _emit(emit, {"type": "task_failed", "id": "prayer", "role": "prayer",
+                               "worker": claude.name,
+                               "reason": f"couldn't answer the prayer ({str(e)[:80]}); carry it yourself"})
+    await _emit(emit, {"type": "prayer", "text": wf.review.prayer.strip(),
+                       "message": prayer_message(wf)})
 
 
 async def _review(engine, wf: Workflow, emit: Emit | None,

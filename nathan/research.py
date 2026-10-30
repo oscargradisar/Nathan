@@ -39,9 +39,10 @@ SNIPPET = 1800        # characters of text kept per source item
 MAX_EVIDENCE = 16     # items handed to the analysts
 ANALYSTS = 4
 PREMIUM_TIMEOUT_S = 180.0  # a premium researcher that takes longer is left out
-SOURCE_BUDGET_S = 25.0
+PREMIUM_GRACE_S = 45.0  # once the free analysts are done, premium ones get this much longer
+SOURCE_BUDGET_S = 25.0  # a source that takes longer keeps what it found so far
 NOISY = {"arXiv", "OpenAlex", "Hacker News"}  # must mention what the question names
-THIN = 4  # fewer useful sources than this: a second scout tries other angles  # rendered pages take a few seconds each  # a source that takes longer keeps what it found so far
+THIN = 4  # fewer useful sources than this: a second scout tries other angles
 
 SCOUT_SYSTEM = """You plan web research. Turn the question into 2-4 short search queries
 (keywords, not sentences) that would find the answer in Wikipedia, papers or forums.
@@ -396,12 +397,38 @@ async def _harvest(premium, question, evidence, emit, http, limit: int = 4) -> l
 async def run_research(engine, question: str, emit: Emit | None = None,
                        http: httpx.AsyncClient | None = None, team=None, ask=None) -> dict:
     from nathan import managers
-    from nathan.workflow import hedged
 
     ask = ask or managers.ask
     team = team if team is not None else await managers.connected()
     # Your premium plans research the live web themselves, alongside the free pipeline
-    premium_task = asyncio.gather(*(_premium(m, question, emit, ask) for m in team))
+    premium_tasks = {asyncio.create_task(_premium(m, question, emit, ask)): m for m in team}
+    try:
+        return await _research(engine, question, emit, http, team, ask, premium_tasks)
+    finally:  # stopped or crashed: don't leave premium researchers running
+        for t in premium_tasks:
+            t.cancel()
+
+
+async def _collect_premium(premium_tasks: dict, emit: Emit | None, free_done: bool) -> list:
+    """Premium answers that arrived in time. Once the free analysts have answered, the
+    premium ones get PREMIUM_GRACE_S more, not their full timeout: one slow manager
+    shouldn't hold the whole answer for minutes. With no free answer, they're all we
+    have, so we wait for them properly."""
+    if not premium_tasks:
+        return []
+    done, late = await asyncio.wait(premium_tasks, timeout=PREMIUM_GRACE_S if free_done else None)
+    for t in late:
+        t.cancel()
+        m = premium_tasks[t]
+        await _emit(emit, {"type": "task_failed", "id": f"premium:{m.id}", "worker": m.name,
+                           "role": "premium researcher",
+                           "reason": f"still searching after {PREMIUM_GRACE_S:.0f}s; went ahead without it"})
+    return [p for t in premium_tasks if t in done and (p := t.result())]  # in team order
+
+
+async def _research(engine, question, emit, http, team, ask, premium_tasks) -> dict:
+    from nathan import managers
+    from nathan.workflow import hedged
 
     # 1. scout
     await _emit(emit, {"type": "phase", "phase": "scouting"})
@@ -439,7 +466,7 @@ async def run_research(engine, question: str, emit: Emit | None = None,
                             role="analyst")
 
     got = [g for g in await asyncio.gather(*(analyst(i, r) for i, r in enumerate(picks))) if g]
-    premium = [p for p in await premium_task if p]
+    premium = await _collect_premium(premium_tasks, emit, free_done=bool(got))
     if not got and not premium:
         raise NoModelAvailable("no analyst could read the evidence")
 

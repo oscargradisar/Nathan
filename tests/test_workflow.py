@@ -138,6 +138,118 @@ async def test_slow_worker_gets_a_backup(make_engine, monkeypatch):
     assert all(r["no_shows"] == 0 for r in engine.staff.board())  # slow isn't absent
 
 
+async def test_a_part_starts_when_its_own_dependencies_are_done(make_engine):
+    """No wave barrier: t3 needs only t1, so it mustn't wait for a slow, unrelated t2."""
+    import asyncio
+
+    plan = {**PLAN, "tasks": [PLAN["tasks"][0], PLAN["tasks"][1],
+                              {"id": "t3", "instruction": "check budget", "depends_on": ["t1"]}]}
+    base = responder_for({"summary": "ok", "scores": {"t1": 8, "t2": 8, "t3": 8}})
+
+    async def responder(ref, messages, **kw):
+        if "planner" in str(messages[0]["content"]):
+            return json.dumps(plan)
+        if "YOUR PART: find comfort" in str(messages[-1]["content"]):
+            await asyncio.sleep(0.3)
+        return base(ref, messages, **kw)
+
+    events = []
+    wf = await run_workflow(make_engine(responder), "Plan a trip", events.append)
+    order = [(e["type"], e.get("id")) for e in events]
+    assert order.index(("delivered", "t3")) < order.index(("delivered", "t2"))
+    assert set(wf.results) == {"t1", "t2", "t3"}
+
+
+async def test_a_part_still_runs_when_its_dependency_failed(make_engine):
+    base = responder_for({"summary": "ok", "scores": {"t1": 0, "t2": 8, "t3": 8}})
+    seen = []
+
+    def responder(ref, messages, **kw):
+        text = str(messages[-1]["content"])
+        if "YOUR PART: find budget" in text:
+            return ProviderDown("down")  # every worker fails t1
+        if "YOUR PART: compare" in text:
+            seen.append(text)
+        return base(ref, messages, **kw)
+
+    events = []
+    wf = await run_workflow(make_engine(responder), "Plan a trip", events.append)
+    assert any(e["type"] == "task_failed" and e["id"] == "t1" for e in events)
+    assert "t3" in wf.results and "WORK FROM t2" in seen[0] and "WORK FROM t1" not in seen[0]
+
+
+async def test_redo_worker_sees_the_reviewers_feedback(make_engine):
+    first_t2, prompts = {}, []
+    base = responder_for({})
+
+    def responder(ref, messages, **kw):
+        text = str(messages[-1]["content"])
+        if "YOUR PART: find comfort" in text:
+            first_t2.setdefault("ref", ref)
+            prompts.append(text)
+        if "reviewer" in str(messages[0]["content"]):
+            t2 = text.split("--- t2", 1)[1].split("---", 2)[1]
+            score = 3 if f"work by {first_t2['ref']}" in t2 else 8
+            return json.dumps({"summary": "Comfort part is thin.", "missing": ["hotel prices"],
+                               "scores": {"t1": 9, "t2": score, "t3": 8}})
+        return base(ref, messages, **kw)
+
+    await run_workflow(make_engine(responder), "Plan a trip", [].append)
+    assert len(prompts) == 2 and "REDONE" not in prompts[0]
+    redo = prompts[1]
+    assert "scored the previous attempt 3/10" in redo and "hotel prices" in redo
+    assert "Comfort part is thin." in redo and f"work by {first_t2['ref']}" in redo
+
+
+async def test_signed_in_claude_answers_the_prayer_itself(make_engine, monkeypatch):
+    from nathan import managers
+
+    engine = make_engine(responder_for({}))
+    asked = []
+
+    async def connected():
+        return [managers.CLAUDE]
+
+    async def ask(m, prompt, **kw):
+        if "reviewer" in prompt:
+            return json.dumps({"summary": "ok", "scores": {"t1": 8, "t2": 8, "t3": 8},
+                               "prayer": "Is the old town walkable in winter?"})
+        asked.append((prompt, kw))
+        return "Yes, very."
+
+    monkeypatch.setattr(managers, "connected", connected)
+    monkeypatch.setattr(managers, "ask", ask)
+    events = []
+    wf = await run_workflow(engine, "Plan a trip", events.append)  # plain workflow: no boss
+    types = [e["type"] for e in events]
+    assert "prayer" not in types and "blessed" in types  # nothing for the owner to carry
+    assert "walkable" in asked[0][0] and asked[0][1].get("web") is True
+    assert any(e["type"] == "delivered" and e["id"] == "prayer" for e in events)
+    assert wf.final == "FINAL: revised"
+
+
+async def test_prayer_falls_back_to_the_owner_when_claude_cant_answer(make_engine, monkeypatch):
+    from nathan import managers
+
+    engine = make_engine(responder_for({}))
+
+    async def connected():
+        return [managers.CLAUDE]
+
+    async def ask(m, prompt, **kw):
+        if "reviewer" in prompt:
+            return json.dumps({"summary": "ok", "scores": {"t1": 8, "t2": 8, "t3": 8},
+                               "prayer": "Is the old town walkable in winter?"})
+        raise RuntimeError("usage limit reached")
+
+    monkeypatch.setattr(managers, "connected", connected)
+    monkeypatch.setattr(managers, "ask", ask)
+    events = []
+    wf = await run_workflow(engine, "Plan a trip", events.append)
+    assert any(e["type"] == "task_failed" and e["id"] == "prayer" for e in events)
+    assert events[-2]["type"] == "prayer" and wf.final == "FINAL: first"
+
+
 async def test_overlord_plans_picks_workers_and_writes(make_engine, monkeypatch):
     from nathan import managers
 
