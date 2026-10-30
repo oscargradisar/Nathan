@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import html
+import ipaddress
 import os
 import re
 import shutil
@@ -26,6 +27,45 @@ MAX_CHARS = 12000
 UA = {"user-agent": "Nathan/1.0 (https://github.com/oscargradisar/Nathan) httpx2"}
 RENDER_WAIT_MS = 9000  # how long the hidden browser lets the page's scripts run
 _JS_SHELL = re.compile(r"enable javascript|requires javascript|you need to enable|loading\.\.\.|__next|id=\"root\"|id=\"app\"", re.IGNORECASE)
+
+
+class PrivateAddress(PermissionError):
+    """The agent asked for an address on this computer or the local network."""
+
+
+def _blocked(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    return (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved
+            or ip.is_multicast or ip.is_unspecified)
+
+
+async def check_public(host: str) -> None:
+    """Raise PrivateAddress unless `host` is on the public internet.
+
+    Why: the agent reads pages written by strangers. A page can tell it "now fetch
+    http://127.0.0.1:8765/..." (Nathan's own API) or a router's admin page on the LAN, so
+    the fetch tool only goes where any website could send you anyway."""
+    host = host.strip("[]").lower()
+    if host == "localhost" or host.endswith(".localhost"):
+        raise PrivateAddress(f"{host} is this computer")
+    try:
+        if _blocked(ipaddress.ip_address(host)):
+            raise PrivateAddress(f"{host} is a private or local address")
+        return
+    except ValueError:
+        pass  # a name, not an address: look it up
+    if host.endswith((".test", ".example", ".invalid")):
+        return  # reserved names that never resolve publicly (used by the tests)
+    try:
+        infos = await asyncio.get_running_loop().getaddrinfo(host, None)
+    except OSError:
+        return  # doesn't resolve: the request itself will fail, nothing to protect
+    for info in infos:
+        if _blocked(ipaddress.ip_address(info[4][0].split("%")[0])):
+            raise PrivateAddress(f"{host} points to a private or local address")
+
+
+async def _guard(request: httpx.Request) -> None:  # every hop, redirects included
+    await check_public(request.url.host)
 
 
 def html_to_text(raw: str) -> str:
@@ -91,9 +131,15 @@ async def read_page_html(url: str, http: httpx.AsyncClient | None = None) -> tup
     own = http is None
     http = http or httpx.AsyncClient(timeout=20, follow_redirects=True, headers=UA)
     try:
-        resp = await http.get(url)
-        body = resp.content[:MAX_BYTES].decode(resp.encoding or "utf-8", errors="replace")
-        status = resp.status_code
+        # Streamed, so a huge file stops at MAX_BYTES instead of being downloaded in full
+        async with http.stream("GET", url) as resp:
+            data = bytearray()
+            async for chunk in resp.aiter_bytes():
+                data += chunk
+                if len(data) >= MAX_BYTES:
+                    break
+            body = bytes(data[:MAX_BYTES]).decode(resp.encoding or "utf-8", errors="replace")
+            status = resp.status_code
     except httpx.HTTPError:
         body, status = "", 0
     finally:
@@ -117,7 +163,20 @@ async def read_page(url: str, http: httpx.AsyncClient | None = None) -> tuple[in
 async def fetch_url(url: str, client: httpx.AsyncClient | None = None) -> str:
     if not re.match(r"^https?://", url):
         return "ERROR: only http(s) URLs are allowed"
-    status, text = await read_page(url, client)
+    own = client is None
+    client = client or httpx.AsyncClient(timeout=20, follow_redirects=True, headers=UA)
+    if _guard not in client.event_hooks["request"]:
+        client.event_hooks["request"] = [*client.event_hooks["request"], _guard]
+    try:
+        # shortcut: the hidden-browser fallback (render) follows its own redirects unchecked;
+        # route it through a proxy that applies check_public if pages start abusing that
+        await check_public(httpx.URL(url).host)
+        status, text = await read_page(url, client)
+    except PrivateAddress as e:
+        return f"ERROR: not allowed: {e}. The fetch tool only reads public web pages."
+    finally:
+        if own:
+            await client.aclose()
     if not text:
         return f"ERROR: couldn't read {url}"
     if len(text) > MAX_CHARS:

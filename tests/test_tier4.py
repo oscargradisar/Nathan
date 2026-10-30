@@ -88,6 +88,37 @@ async def test_fetch_url_with_mock_transport():
     assert "only http" in await fetch_url("file:///etc/passwd")
 
 
+async def test_fetch_url_refuses_this_computer_and_the_local_network():
+    """A page can tell the agent to fetch Nathan's own API or a router's admin page."""
+    for url in ("http://127.0.0.1:8765/api/status", "http://localhost:8765/", "http://[::1]/",
+                "http://192.168.1.1/admin", "http://169.254.169.254/latest/meta-data"):
+        assert "not allowed" in await fetch_url(url), url
+
+
+async def test_fetch_url_checks_every_redirect():
+    def handler(req):
+        if req.url.host == "public.test":
+            return httpx.Response(302, headers={"location": "http://10.0.0.1/secret"})
+        return httpx.Response(200, text="<p>secret router page</p>")
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler), follow_redirects=True)
+    out = await fetch_url("https://public.test/page", client)
+    assert "not allowed" in out and "secret" not in out.split("not allowed")[0]
+
+
+async def test_fetch_url_stops_reading_a_huge_file(monkeypatch):
+    from nathan.tools import fetch
+
+    monkeypatch.setattr(fetch, "MAX_BYTES", 1000)
+
+    def handler(req):
+        return httpx.Response(200, content=b"a" * 50_000, headers={"content-type": "text/plain"})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    out = await fetch_url("https://big.test/file.txt", client)
+    assert out.count("a") <= 1100
+
+
 def test_html_to_text():
     assert html_to_text("<p>a</p><p>b</p>").split() == ["a", "b"]
 
