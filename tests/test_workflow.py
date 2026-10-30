@@ -136,3 +136,53 @@ async def test_slow_worker_gets_a_backup(make_engine, monkeypatch):
     backup = next(e for e in events if e["type"] == "backup" and e["id"] == "t1")
     assert backup["for"] == slow and wf.worker["t1"] == backup["worker"]
     assert all(r["no_shows"] == 0 for r in engine.staff.board())  # slow isn't absent
+
+
+async def test_overlord_plans_picks_workers_and_writes(make_engine, monkeypatch):
+    from nathan import managers
+
+    review = {"summary": "Overlord approves.", "scores": {"t1": 9, "t2": 8, "t3": 8}, "prayer": "?"}
+    engine = make_engine(responder_for({}))  # free staff: workers only
+    asked = []
+
+    async def connected():
+        return [managers.CHATGPT, managers.CLAUDE]
+
+    async def ask(m, prompt, **kw):
+        asked.append(m.id)
+        if "staff available right now" in prompt:
+            assert "beta/b-big" in prompt and '"worker"' in prompt  # sees the staff sheet
+            return json.dumps({**PLAN, "tasks": [{**t, "worker": "beta/b-big"} if t["id"] == "t1" else t
+                                                 for t in PLAN["tasks"]]})
+        if "reviewer" in prompt:
+            return json.dumps(review)
+        return "OVERLORD FINAL"
+
+    monkeypatch.setattr(managers, "connected", connected)
+    monkeypatch.setattr(managers, "ask", ask)
+    events = []
+    wf = await run_workflow(engine, "Plan a trip", events.append, overlord=True)
+    assert set(asked) == {"claude"}  # Claude outranks ChatGPT and runs the whole job
+    assert wf.assigned["t1"] == "beta/b-big" and wf.worker["t1"] == "beta/b-big"
+    assert wf.final == "OVERLORD FINAL" and wf.writer == "Claude"
+    assert next(e for e in events if e["type"] == "plan")["planner"] == "Claude"
+    assert "prayer" not in [e["type"] for e in events]  # no praying to the boss
+
+
+async def test_overlord_falls_back_to_free_staff(make_engine, monkeypatch):
+    from nathan import managers
+
+    engine = make_engine(responder_for({"summary": "ok", "scores": {"t1": 8, "t2": 8, "t3": 8}}))
+
+    async def connected():
+        return [managers.CLAUDE]
+
+    async def ask(m, prompt, **kw):
+        raise RuntimeError("usage limit reached")
+
+    monkeypatch.setattr(managers, "connected", connected)
+    monkeypatch.setattr(managers, "ask", ask)
+    events = []
+    wf = await run_workflow(engine, "Plan a trip", events.append, overlord=True)
+    assert wf.final == "FINAL: first" and wf.writer != "Claude"
+    assert sum(e["type"] == "task_failed" and "take over" in e.get("reason", "") for e in events) >= 2

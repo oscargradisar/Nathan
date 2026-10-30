@@ -92,7 +92,7 @@ async function connect(p) {
 
 // ---- premium plans (managers) ------------------------------------------------------------
 const ROLE_NOTE = {
-  claude: "the boss: final word on reviews, verifies research",
+  claude: "the Overlord: plans, picks workers and writes in Overlord mode; final word on reviews",
   chatgpt: "assistant manager · runs Programming · searches the web",
 };
 

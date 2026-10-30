@@ -155,9 +155,9 @@ async def connected() -> list[Manager]:
 
 
 # ---- who leads -----------------------------------------------------------------------
-# You pick the lead manager (ChatGPT by default: cheaper on your plan; Claude: sharper).
-# The lead reviews workflows, verifies research, has the final word in performance
-# reviews and runs Programming. If it isn't signed in, the other steps in.
+# You pick the lead manager (Claude by default: the sharpest, and the Overlord; ChatGPT:
+# lighter on your plan). The lead reviews workflows, verifies research, has the final word
+# in performance reviews and runs Programming. If it isn't signed in, the other steps in.
 
 def _settings_file() -> Path:
     from nathan.config import data_dir
@@ -167,10 +167,10 @@ def _settings_file() -> Path:
 
 def chosen() -> str:
     try:
-        mid = json.loads(_settings_file().read_text(encoding="utf-8")).get("manager", "chatgpt")
+        mid = json.loads(_settings_file().read_text(encoding="utf-8")).get("manager", "claude")
     except (OSError, ValueError):
-        mid = "chatgpt"
-    return mid if mid in ("chatgpt", "claude") else "chatgpt"
+        mid = "claude"
+    return mid if mid in ("chatgpt", "claude") else "claude"
 
 
 def choose(mid: str) -> str:

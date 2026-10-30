@@ -11,6 +11,7 @@ export const MODES = [
   { id: "autopilot", label: "Autopilot", help: "Give Nathan a goal. It plans, researches, opens things, drives the globe and prepares messages by itself, up to 20 steps." },
   { id: "single", label: "Quick", help: "One fast model. For when you just need an answer." },
   { id: "research", label: "Research", help: "Searches Wikipedia, papers, forums and the web, then several models answer from the sources with citations and a verifier cross-checks." },
+  { id: "overlord", label: "Overlord", help: "Claude takes command: it plans, hand-picks a free worker for every part, writes the answer and reviews it. ChatGPT or the free staff step in if it's away." },
   { id: "workflow", label: "Workflow", help: "A manager splits it into parts, workers do them in parallel, a writer joins them, a reviewer checks." },
   { id: "vote", label: "Council", help: "Five models answer separately; a judge merges the best of each." },
   { id: "swarm", label: "Swarm", help: "Everyone available answers at once, then a judge merges. Loud, thorough, free." },
@@ -214,7 +215,7 @@ function busy(on, big = "", small = "") {
 const DOING = { answerer: "ANSWERING", drafter: "DRAFTING", critic: "CRITIQUING", reviser: "REVISING",
   racer: "RACING", writer: "WRITING", reviewer: "REVIEWING", scout: "SCOUTING", source: "SEARCHING",
   analyst: "ANALYSING", verifier: "VERIFYING", "premium researcher": "RESEARCHING", coder: "CODING",
-  manager: "MANAGING", "assistant manager": "REVIEWING", "research director": "REVIEWING" };
+  manager: "MANAGING", overlord: "COMMANDING", "assistant manager": "REVIEWING", "research director": "REVIEWING" };
 
 function handle(ev) {
   say_(quip(ev));
@@ -230,6 +231,7 @@ function handle(ev) {
       play("route"); break;
     }
     case "phase": phase(ev.phase); break;
+    case "note": say_(ev.text); toast(ev.text, 5000); break;
     case "plan":
       unit("manager", { role: "manager", task: "Split your request into parts", model: ev.planner, status: "done",
         text: ev.tasks.map((t) => `${t.id}: ${t.instruction}`).join("\n") });

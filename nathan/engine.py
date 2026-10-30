@@ -22,7 +22,8 @@ from nathan.staff import START, Staff
 UNKNOWN_SPEED_S = 8.0  # assumed answer time for a model that hasn't delivered yet
 QUICK_HEDGE_S = 6.0  # quick answers: a backup starts if nothing arrives by then
 
-MODES = ("auto", "single", "race", "vote", "critique", "plan", "agent", "workflow", "research", "code", "autopilot")
+MODES = ("auto", "single", "race", "vote", "critique", "plan", "agent", "workflow", "overlord", "research", "code",
+         "autopilot")
 
 
 @dataclass
@@ -182,11 +183,11 @@ class Engine:
             q = "\n\n".join(str(m["content"]) for m in messages if m["role"] == "user")
             r = await run_code(self, q, on_event)
             return Answer(f"Saved {len(r['files'])} file(s) to {r['folder']}", mode, [], extra=r)
-        if mode == "workflow":
+        if mode in ("workflow", "overlord"):
             from nathan.workflow import run_workflow
 
             goal = "\n\n".join(str(m["content"]) for m in messages if m["role"] == "user")
-            wf = await run_workflow(self, goal, on_event)
+            wf = await run_workflow(self, goal, on_event, overlord=mode == "overlord")
             return Answer(wf.final, mode, sorted(set(wf.worker.values())), judge=wf.writer,
                           note=wf.review.summary if wf.review else "",
                           extra={"review": wf.review.model_dump() if wf.review else None})
@@ -195,7 +196,7 @@ class Engine:
 
             question_text = "\n\n".join(str(m["content"]) for m in messages if m["role"] == "user")
             r = await route(self, question_text)
-            pattern = {"plan": "workflow", "agent": "autopilot"}.get(r.pattern, r.pattern)
+            pattern = {"plan": "overlord", "agent": "autopilot"}.get(r.pattern, r.pattern)
             await _emit(on_event, {"type": "routed", "pattern": pattern, "task_type": r.task_type,
                                    "reason": r.reason, "by": r.by})
             ans = await self._run(messages, mode=pattern, models=models, n=n,

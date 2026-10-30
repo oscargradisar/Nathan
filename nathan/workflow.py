@@ -7,8 +7,14 @@ what. The reviewer's scores feed the staff Elo ladder (staff.py). If the team is
 the reviewer can write a prayer to Claude: you approve it, paste it into claude.ai
 yourself (there is no free Claude API), and paste the reply back for a revised answer.
 
+Overlord mode (run_workflow(..., overlord=True)): Claude, through its official CLI on your
+own plan, is the boss. It sees the whole staff with Elo and speed, plans the parts and
+hand-picks a worker for each, writes the final answer from their work and reviews it.
+ChatGPT steps in if Claude isn't signed in, and the free planner, writer and judges take
+over any step a manager can't do, so a job never stalls on the boss.
+
 Events: phase, plan, assigned, working, reassigned, delivered, task_failed, final,
-review, ratings, prayer, blessed.
+review, ratings, prayer, blessed, note.
 """
 
 from __future__ import annotations
@@ -25,7 +31,7 @@ from nathan import managers
 from nathan.errors import RECOVERABLE, NoModelAvailable
 from nathan.jsonutil import extract_json, race_json
 from nathan.patterns import fallback
-from nathan.planner import Subtask, TaskGraph, plan
+from nathan.planner import PLANNER_SYSTEM, Subtask, TaskGraph, plan
 from nathan.staff import START
 
 Emit = Callable[[dict[str, Any]], Awaitable[None] | None]
@@ -48,6 +54,16 @@ write "prayer": a short, humble, specific question to Claude. Otherwise leave it
 Reply with ONLY JSON:
 {"summary": "asked vs got, 2-4 sentences", "delivered": ["..."], "missing": ["..."],
  "scores": {"t1": 8}, "prayer": ""}"""
+
+
+OVERLORD_SYSTEM = """You are the OVERLORD of Nathan: you command a staff of free AI models
+that run in parallel, and you decide who does what. The staff available right now
+(model · strengths · Elo rating · average seconds per job):
+{staff}
+
+For each subtask you may set "worker" to one of the models above (exact name) to
+hand-pick it: hard reasoning to high-Elo models, quick lookups to fast ones, and parallel
+parts spread across different providers. Leave "worker" as "" to let Nathan pick."""
 
 
 class Review(BaseModel):
@@ -88,6 +104,10 @@ def assign(engine, graph: TaskGraph) -> dict[str, str]:
     for wave in graph.waves():
         busy: set[str] = set()
         for task in wave:
+            if task.worker and task.worker not in busy and engine.roster.usable(task.worker):
+                out[task.id] = task.worker  # the overlord's pick
+                busy.add(task.worker)
+                continue
             fits = engine.roster.candidates(task.tags or None)[:12] or engine.roster.candidates(None)
             starters = [r for r in fits if engine.staff.priority(r) >= START - BENCH_BELOW]
             fits = starters or fits  # the bench only plays when nobody better is free
@@ -186,15 +206,29 @@ async def _do_task(engine, wf: Workflow, task: Subtask, emit: Emit | None,
         wf.worker[task.id], wf.results[task.id] = got[0], got[1].text
 
 
-async def _write(engine, wf: Workflow, emit: Emit | None) -> None:
+async def _write(engine, wf: Workflow, emit: Emit | None, boss: managers.Manager | None = None) -> None:
     assert wf.graph is not None
+    brief = (f"ORIGINAL REQUEST:\n{wf.prompt}\n\nHOW TO COMBINE: {wf.graph.synthesis}"
+             f"\n\nTEAM WORK:\n{_team_work(wf)}")
+    if boss is not None:
+        await _emit(emit, {"type": "working", "id": "writer", "worker": boss.name, "role": "writer"})
+        try:
+            text = (await managers.ask(boss, WRITER_SYSTEM + "\n\n" + brief)).strip()
+        except RuntimeError as e:
+            text = ""
+            await _emit(emit, {"type": "task_failed", "id": "writer", "role": "writer", "worker": boss.name,
+                               "reason": f"{boss.name} couldn't write ({str(e)[:80]}); free writers take over"})
+        if text:
+            wf.final, wf.writer = text, boss.name
+            await _emit(emit, {"type": "delivered", "id": "writer", "worker": boss.name, "role": "writer",
+                               "text": text})
+            await _emit(emit, {"type": "final", "text": wf.final, "writer": wf.writer})
+            return
     # The write-up is long, so a slow model makes everyone wait: quickest of the good writers
     good = engine.roster.candidates(["writing"])[:10]
     writers = sorted(good, key=lambda r: engine.staff.seconds(r) or HEDGE_AFTER_S) + engine.chain(["writing"])
     got = await hedged(engine, "writer", list(dict.fromkeys(writers)), [
-        {"role": "system", "content": WRITER_SYSTEM},
-        {"role": "user", "content": f"ORIGINAL REQUEST:\n{wf.prompt}\n\nHOW TO COMBINE: "
-                                    f"{wf.graph.synthesis}\n\nTEAM WORK:\n{_team_work(wf)}"}],
+        {"role": "system", "content": WRITER_SYSTEM}, {"role": "user", "content": brief}],
         emit, role="writer")
     if got is None:
         raise NoModelAvailable("no writer could combine the team's work")
@@ -208,14 +242,47 @@ def _team_work(wf: Workflow) -> str:
                        for t in wf.graph.tasks)
 
 
-async def run_workflow(engine, prompt: str, emit: Emit | None = None) -> Workflow:
+def staff_sheet(engine, limit: int = 30) -> str:
+    """The roster as the overlord sees it: one line per usable model."""
+    lines = []
+    for ref in engine.roster.candidates(None)[:limit]:
+        prov, _, model = ref.partition("/")
+        tags = ", ".join(engine.providers[prov].models[model].tags) or "general"
+        secs = engine.staff.seconds(ref)
+        lines.append(f"- {ref} · {tags} · Elo {engine.staff.priority(ref):.0f} · "
+                     + (f"{secs:.0f}s" if secs else "speed unknown"))
+    return "\n".join(lines) or "(no free workers connected)"
+
+
+async def _overlord_plan(engine, boss: managers.Manager, prompt: str) -> TaskGraph:
+    schema = PLANNER_SYSTEM.replace('"tags": []}', '"tags": [], "worker": ""}')
+    text = await managers.ask(boss, f"{schema}\n\n{OVERLORD_SYSTEM.format(staff=staff_sheet(engine))}"
+                                    f"\n\nGOAL:\n{prompt}")
+    return TaskGraph.model_validate(extract_json(text))
+
+
+async def run_workflow(engine, prompt: str, emit: Emit | None = None, *,
+                       overlord: bool = False) -> Workflow:
     wf = Workflow(prompt)
     wf.team = await managers.connected()
+    # The overlord is the most senior manager signed in: Claude, else ChatGPT
+    boss = min(wf.team, key=lambda m: m.rank) if overlord and wf.team else None
     await _emit(emit, {"type": "phase", "phase": "planning"})
-    planners = engine.chain(["planner", "reasoning", "long_context"])[:2]
-    await _emit(emit, {"type": "working", "id": "manager", "role": "manager",
-                       "worker": " vs ".join(planners)})
-    wf.graph, planner = await plan(engine, prompt)
+    if overlord and boss is None:
+        await _emit(emit, {"type": "note", "text": "No manager signed in, so the free staff runs this "
+                                                  "one. Sign in Claude under Accounts to put it in charge."})
+    if boss is not None:
+        await _emit(emit, {"type": "working", "id": "manager", "role": "overlord", "worker": boss.name})
+        try:
+            wf.graph, planner = await _overlord_plan(engine, boss, prompt), boss.name
+        except (RuntimeError, ValueError, ValidationError) as e:
+            await _emit(emit, {"type": "task_failed", "id": "manager", "role": "overlord", "worker": boss.name,
+                               "reason": f"{boss.name} couldn't plan ({str(e)[:80]}); free planners take over"})
+    if wf.graph is None:
+        planners = engine.chain(["planner", "reasoning", "long_context"])[:2]
+        await _emit(emit, {"type": "working", "id": "manager", "role": "manager",
+                           "worker": " vs ".join(planners)})
+        wf.graph, planner = await plan(engine, prompt)
     wf.assigned = assign(engine, wf.graph)
     await _emit(emit, {"type": "plan", "planner": planner, "synthesis": wf.graph.synthesis,
                        "tasks": [{**t.model_dump(), "worker": wf.assigned[t.id]}
@@ -228,10 +295,10 @@ async def run_workflow(engine, prompt: str, emit: Emit | None = None) -> Workflo
         raise NoModelAvailable("no worker could do any part of the task")
 
     await _emit(emit, {"type": "phase", "phase": "writing"})
-    await _write(engine, wf, emit)
+    await _write(engine, wf, emit, boss)
 
     await _emit(emit, {"type": "phase", "phase": "reviewing"})
-    reviewer = await _review(engine, wf, emit)
+    reviewer = await _review(engine, wf, emit, boss)
     if wf.review is None:
         await _emit(emit, {"type": "phase", "phase": "done"})
         return wf  # the answer stands; only the review (and this round's Elo) is skipped
@@ -253,15 +320,15 @@ async def run_workflow(engine, prompt: str, emit: Emit | None = None) -> Workflo
         await asyncio.gather(*(_do_task(engine, wf, t, emit, avoid=(wf.worker.get(t.id, ""),))
                                for t in weak))
         await _emit(emit, {"type": "phase", "phase": "writing"})
-        await _write(engine, wf, emit)
+        await _write(engine, wf, emit, boss)
         await _emit(emit, {"type": "phase", "phase": "reviewing"})
-        reviewer = await _review(engine, wf, emit) or reviewer
+        reviewer = await _review(engine, wf, emit, boss) or reviewer
         if wf.review is None:
             wf.review = Review(summary="", scores=first_scores)
 
     changes = engine.staff.rate(score_workers(wf))
     await _emit(emit, {"type": "ratings", "changes": {r: round(d, 1) for r, d in changes.items()}})
-    if wf.review.prayer.strip():
+    if wf.review.prayer.strip() and not (boss and boss.id == "claude"):  # Claude already ran it
         engine.memory.add("prayer", wf.review.prayer.strip(), {"prompt": prompt[:500]})
         await _emit(emit, {"type": "prayer", "text": wf.review.prayer.strip(),
                            "message": prayer_message(wf)})
@@ -269,11 +336,12 @@ async def run_workflow(engine, prompt: str, emit: Emit | None = None) -> Workflo
     return wf
 
 
-async def _review(engine, wf: Workflow, emit: Emit | None) -> str | None:
+async def _review(engine, wf: Workflow, emit: Emit | None,
+                  boss: managers.Manager | None = None) -> str | None:
     """Asked-vs-got review. Sets wf.review (None if no reviewer answered); returns the reviewer.
-    Your lead manager (ChatGPT or Claude) does it when signed in; else the best free judges."""
+    The overlord, else your lead manager (Claude or ChatGPT) when signed in; else free judges."""
     brief = f"ASKED FOR:\n{wf.prompt}\n\nTEAM WORK:\n{_team_work(wf)}\n\nFINAL ANSWER:\n{wf.final}"
-    for m in managers.lead_order(wf.team)[:1]:
+    for m in [boss] if boss else managers.lead_order(wf.team)[:1]:
         await _emit(emit, {"type": "working", "id": "reviewer", "worker": m.name, "role": "reviewer"})
         try:
             text = await managers.ask(m, REVIEWER_SYSTEM + "\n\n" + brief)

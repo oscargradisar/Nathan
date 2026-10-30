@@ -20,6 +20,8 @@ const T = {
     swarm: ["Routing: swarm. Everyone answers. This is either wisdom of crowds or a group chat."],
     critique: ["Routing: critique. One writes, one criticises, one fixes. Workplace realism."],
     workflow: ["Routing: workflow. A manager is about to delegate, which is the whole job of a manager."],
+    overlord: ["Routing: overlord. Claude has taken command. The free staff stands a little straighter.",
+      "Routing: overlord. One premium mind, many free hands. Feudalism, but for tokens."],
     research: ["Routing: research. Actual sources this time. The models have been told to cite or be quiet."],
     code: ["Routing: programming. ChatGPT is putting on its manager lanyard."],
     review: ["Performance review. The models have been told it's 'just a conversation'. It is not."],

@@ -144,7 +144,7 @@ async function quit() {
 
 async function initLead() {
   const paint = (m) => { for (const b of $("lead").querySelectorAll("button")) b.setAttribute("aria-checked", String(b.dataset.m === m)); };
-  const s = await api("/api/settings").catch(() => ({ manager: "chatgpt" }));
+  const s = await api("/api/settings").catch(() => ({ manager: "claude" }));
   paint(s.manager);
   for (const b of $("lead").querySelectorAll("button")) b.onclick = async () => {
     try { paint((await api("/api/settings", { manager: b.dataset.m })).manager); play("click");
@@ -155,11 +155,11 @@ async function initLead() {
 
 async function codeBoss() {
   const { managers } = await api("/api/managers").catch(() => ({ managers: [] }));
-  const lead = (await api("/api/settings").catch(() => ({ manager: "chatgpt" }))).manager;
+  const lead = (await api("/api/settings").catch(() => ({ manager: "claude" }))).manager;
   const order = [lead, lead === "chatgpt" ? "claude" : "chatgpt"];
   const boss = order.map((id) => managers.find((m) => m.id === id && m.signed_in)).find(Boolean);
   $("code-boss").textContent = boss ? boss.name : "The free team's planner";
-  $("code-note").textContent = boss ? `${boss.name} is managing.` : "Connect ChatGPT under Accounts to put it in charge.";
+  $("code-note").textContent = boss ? `${boss.name} is managing.` : "Connect Claude or ChatGPT under Accounts to put it in charge.";
 }
 
 boot();

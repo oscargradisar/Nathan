@@ -142,7 +142,7 @@ class RunManager:
                 from nathan.router import route
 
                 r = await route(self.engine, run.prompt)
-                mode = {"plan": "workflow", "agent": "autopilot"}.get(r.pattern, r.pattern)
+                mode = {"plan": "overlord", "agent": "autopilot"}.get(r.pattern, r.pattern)
                 run.emit({"type": "routed", "pattern": mode, "task_type": r.task_type,
                           "reason": r.reason, "by": r.by})
             if mode == "swarm":  # everyone who can answer, at once
@@ -150,12 +150,13 @@ class RunManager:
                 await self._vote(run, models, max(3, min(n * 2, SWARM_MAX)), distinct=False)
             elif mode == "vote":
                 await self._vote(run, models, n)
-            elif mode == "workflow":
+            elif mode in ("workflow", "overlord"):
                 from nathan.workflow import run_workflow
 
-                run.workflow = await run_workflow(self.engine, run.prompt, run.emit)
+                run.workflow = await run_workflow(self.engine, run.prompt, run.emit,
+                                                  overlord=mode == "overlord")
                 run.final = run.workflow.final
-                self.engine.memory.log_exchange(run.prompt, run.final, {"mode": "workflow"})
+                self.engine.memory.log_exchange(run.prompt, run.final, {"mode": mode})
             elif mode == "review":
                 from nathan.review import run_review
 

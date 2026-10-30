@@ -60,13 +60,14 @@ async def test_research_with_a_premium_manager_verifying(make_engine):
     r = await run_research(engine, "What is the population of Ljubljana?", events.append,
                            http=fake_sources(), team=[managers.CLAUDE, managers.CHATGPT], ask=ask)
     assert ("chatgpt", True) in asked and ("claude", True) in asked  # both searched the web
-    assert ("chatgpt", False) in asked  # and the lead manager (ChatGPT by default) verified
+    assert ("claude", False) in asked  # and the lead manager (Claude by default) verified
     final = next(e for e in events if e["type"] == "final")
-    assert final["writer"] == "ChatGPT" and "Sources" in final["text"] and "wikipedia.org" in final["text"]
+    assert final["writer"] == "Claude" and "Sources" in final["text"] and "wikipedia.org" in final["text"]
     assert r["evidence"]
 
 
-async def test_code_mode_chatgpt_manages_and_files_are_saved(make_engine, tmp_path):
+async def test_code_mode_lead_manages_and_files_are_saved(make_engine, tmp_path):
+    managers.choose("chatgpt")  # the owner can hand Programming to ChatGPT
     engine = make_engine(lambda ref, m, **k: "```python\nprint('draft')\n```")
     engine.workspace = tmp_path
     spec = {"project": "Hello Tool", "language": "python",
@@ -81,7 +82,7 @@ async def test_code_mode_chatgpt_manages_and_files_are_saved(make_engine, tmp_pa
     events = []
     r = await run_code(engine, "a hello world script", events.append,
                        team=[managers.CLAUDE, managers.CHATGPT], ask=ask)
-    assert calls == ["chatgpt", "chatgpt"]  # ChatGPT runs Programming even with Claude signed in
+    assert calls == ["chatgpt", "chatgpt"]  # the chosen lead runs Programming, Claude signed in or not
     assert (tmp_path / "code" / "hello-tool" / "hello.py").read_text() == "print('hello')\n"
     assert not (tmp_path / "code" / "escape.py").exists()
     assert any(e["type"] == "saved" for e in events) and r["manager"] == "ChatGPT"
@@ -110,8 +111,7 @@ async def test_review_assistant_drafts_and_boss_decides(make_engine):
         return json.dumps({"summary": "final", "ranking": [{"worker": b, "score": 9, "note": "underrated"},
                                                            {"worker": a, "score": 7}, {"worker": c, "score": 2}]})
 
-    assert managers.chosen() == "chatgpt"  # ChatGPT leads by default
-    managers.choose("claude")  # with Claude as lead, ChatGPT drafts and Claude decides
+    assert managers.chosen() == "claude"  # Claude leads by default: ChatGPT drafts, Claude decides
     r = await run_review(engine, ask=ask, connected=[managers.CLAUDE, managers.CHATGPT])
     assert order == ["chatgpt", "claude"] and r["by"] == "Claude"
     assert r["changes"][letters[b]] > 0 > r["changes"][letters[c]]

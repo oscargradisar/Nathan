@@ -30,6 +30,7 @@ class Subtask(BaseModel):
     instruction: str
     depends_on: list[str] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
+    worker: str = ""  # Overlord mode: the model the overlord hand-picked for this part
 
     @field_validator("id")
     @classmethod

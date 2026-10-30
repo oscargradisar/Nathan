@@ -186,7 +186,7 @@ async def test_auto_mode_routes_to_plan(make_engine):
 
     engine = make_engine(responder)
     ans = await engine.ask("Research solar power and write a one-page brief")
-    assert ans.mode == "workflow" and "routed: research → workflow" in ans.note
+    assert ans.mode == "overlord" and "routed: research → overlord" in ans.note  # free staff: no manager
 
 
 # ---- critique ------------------------------------------------------------------------
