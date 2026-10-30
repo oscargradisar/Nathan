@@ -82,7 +82,8 @@ def ask(
     model: Annotated[list[str] | None, typer.Option(
         "--model", "-m", help="provider/model; repeat to ask several models at once")] = None,
     mode: Annotated[str | None, typer.Option(
-        "--mode", help="auto | single | race | vote | critique | plan | agent | each "
+        "--mode", help="auto | single | race | vote | critique | plan | workflow | overlord | "
+                       "research | code | agent | autopilot | each "
                          "(default: auto, or each with several -m)")
     ] = None,
     n: Annotated[int, typer.Option("--n", help="how many models to fan out to")] = 4,
