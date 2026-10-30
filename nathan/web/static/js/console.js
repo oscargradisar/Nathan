@@ -68,6 +68,7 @@ export function initConsole(staffCount) {
     g.append(svg("line", { x1, y1, x2, y2 }));
   }
   $("cmd").addEventListener("submit", (e) => { e.preventDefault(); start(); });
+  initAttachments();
   $("prompt").addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); start(); }
   });
@@ -108,16 +109,61 @@ export function ask(text, as) {
 }
 
 // ---- running ----------------------------------------------------------------------------
+// ---- images: drop, paste or 📎 ----------------------------------------------------------
+const MAX_IMAGES = 4, MAX_BYTES = 8 * 1024 * 1024;
+let images = [];  // data: URLs
+
+function addImages(files) {
+  for (const f of files) {
+    if (!/^image\/(png|jpeg|webp|gif)$/.test(f.type)) { toast(`${f.name || "That file"} isn't a PNG, JPEG, WebP or GIF image.`); continue; }
+    if (f.size > MAX_BYTES) { toast(`${f.name} is over 8 MB.`); continue; }
+    if (images.length >= MAX_IMAGES) { toast(`Up to ${MAX_IMAGES} images at a time.`); break; }
+    const reader = new FileReader();
+    reader.onload = () => { if (images.length < MAX_IMAGES) { images.push(reader.result); paintImages(); play("click"); } };
+    reader.readAsDataURL(f);
+  }
+}
+
+function paintImages() {
+  $("attachments").replaceChildren(...images.map((src, i) => el("figure", {},
+    el("img", { src, alt: `Attached image ${i + 1}` }),
+    el("button", { type: "button", "aria-label": `Remove image ${i + 1}`,
+      onclick: () => { images.splice(i, 1); paintImages(); } }, "×"))));
+}
+
+function initAttachments() {
+  const form = $("cmd"), file = $("attach-file");
+  $("attach-btn").onclick = () => file.click();
+  file.onchange = () => { addImages(file.files); file.value = ""; };
+  const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes("Files");
+  // Drop anywhere on the console, not just the bar.
+  const zone = $("view-console");
+  let depth = 0;
+  zone.addEventListener("dragenter", (e) => { if (hasFiles(e)) { e.preventDefault(); depth++; form.classList.add("dragging"); } });
+  zone.addEventListener("dragover", (e) => { if (hasFiles(e)) e.preventDefault(); });
+  zone.addEventListener("dragleave", () => { if (--depth <= 0) { depth = 0; form.classList.remove("dragging"); } });
+  zone.addEventListener("drop", (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault(); depth = 0; form.classList.remove("dragging");
+    addImages(e.dataTransfer.files); $("prompt").focus();
+  });
+  $("prompt").addEventListener("paste", (e) => {
+    const files = [...(e.clipboardData?.files || [])].filter((f) => f.type.startsWith("image/"));
+    if (files.length) { e.preventDefault(); addImages(files); }
+  });
+}
+
 async function start() {
   const prompt = $("prompt").value.trim();
-  if (!prompt || $("go").disabled) return;
+  if ((!prompt && !images.length) || $("go").disabled) return;
   stopFollow && stopFollow(); stopSpeech();
   reset();
   busy(true, "ROUTING", mode === "auto" ? "deciding how to handle this" : (MODES.find((m) => m.id === mode)?.label || { code: "programming", review: "performance review" }[mode] || mode).toLowerCase());
   play("start"); say_(startLine());
   strike($("core"), { big: true });
   try {
-    run = await api("/api/runs", { prompt, mode, n: 5 });
+    run = await api("/api/runs", { prompt, mode, n: 5, images });
+    images = []; paintImages();
   } catch (e) {
     busy(false); play("error"); say_(errorLine(e.message)); toast(e.message); return;
   }

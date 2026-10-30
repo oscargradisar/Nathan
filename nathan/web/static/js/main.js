@@ -9,8 +9,9 @@ import { lightningOn, setLightning, strike } from "./fx.js";
 import { initMorphy } from "./morphy.js";
 import { boot as bootScreen } from "./boot.js";
 import { openWorld } from "./world.js";
+import { openEvolve } from "./evolve.js";
 
-const VIEWS = ["console", "world", "code", "staff", "accounts", "history", "systems"];
+const VIEWS = ["console", "world", "code", "staff", "accounts", "history", "systems", "evolve"];
 let status = null;
 let worldVersion = null;
 
@@ -36,6 +37,7 @@ function show() {
   if (name === "world") openWorld();
   if (name === "history") { renderPrayers(); renderHistory((q) => ask(q)); }
   if (name === "systems") refreshStatus().then(() => renderSystems(status));
+  if (name === "evolve") openEvolve();
   if (name === "console") setTimeout(() => $("prompt").focus(), 0);
 }
 window.addEventListener("hashchange", () => { play("click"); show(); });
@@ -109,10 +111,10 @@ async function boot() {
   document.addEventListener("keydown", (e) => {
     const typing = /INPUT|TEXTAREA/.test(document.activeElement?.tagName || "");
     if (e.key === "/" && !typing) { e.preventDefault(); location.hash = "#console"; $("prompt").focus(); }
-    if (e.altKey && /^[1-7]$/.test(e.key)) { e.preventDefault(); location.hash = "#" + VIEWS[Number(e.key) - 1]; }
+    if (e.altKey && /^[1-8]$/.test(e.key)) { e.preventDefault(); location.hash = "#" + VIEWS[Number(e.key) - 1]; }
   });
   if (store.get("seen-tips", false) === false) {
-    log("Tips: / focuses the command bar · Alt+1…6 switches sections · Shift+Enter adds a line.", "sys");
+    log("Tips: / focuses the command bar · Alt+1…8 switches sections · drop images to show Nathan.", "sys");
     store.set("seen-tips", true);
   }
 }

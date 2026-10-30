@@ -148,3 +148,26 @@ async def test_dead_camera_servers_are_skipped(monkeypatch):
     monkeypatch.setattr(geomedia, "_alive", only_cam_3)
     await geomedia.findPublicCameras("Pueblo")
     assert globe.focus["media"]["id"] == "cam-3"
+
+
+async def test_closest_working_camera_to_a_landmark(monkeypatch):
+    async def locate(place):
+        if "Tandoori" in place:
+            return {"lat": 38.2636, "lon": -104.6162, "label": "Mr. Tandoori"}
+        return {"lat": 38.26, "lon": -104.61, "label": "Pueblo", "state": "Colorado"}
+
+    spots = {0: (38.30, -104.61), 1: (38.2640, -104.6160), 2: (38.2650, -104.6170), 3: (38.20, -104.60)}
+
+    async def lookup(location):
+        return [{"id": f"cam-{i}", "name": f"Camera {i}", "lat": la, "lng": lo, "camera_code": i,
+                 "feed_url": f"https://s{i}.example.test/playlist.m3u8", "feed_type": "m3u8"}
+                for i, (la, lo) in spots.items()]
+
+    async def nearest_is_down(nodes):
+        return {n["id"] for n in nodes} - {"cam-1"}
+
+    monkeypatch.setattr(globe, "geocode", locate)
+    monkeypatch.setattr("nathan.opencctv.cameras", lookup)
+    monkeypatch.setattr(geomedia, "_alive", nearest_is_down)
+    result = await geomedia.findPublicCameras("Pueblo, Colorado", near="Mr Tandoori")
+    assert globe.focus["media"]["id"] == "cam-2" and result["near"] == "Mr. Tandoori"

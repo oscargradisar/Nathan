@@ -18,8 +18,9 @@ FIXTURE = Path(__file__).parent / "web/static/data/geomedia.json"
 _cameras: list[dict] = []
 
 
-async def findPublicCameras(place: str) -> dict:
-    """Load a bounded public search into the native globe and select a camera."""
+async def findPublicCameras(place: str, near: str = "", prefer_video: bool = True) -> dict:
+    """Load a bounded public search into the native globe and select a camera: random, or the
+    working one closest to `near` (a landmark, business or address inside `place`)."""
     global _cameras
     from nathan.opencctv import cameras
 
@@ -29,6 +30,11 @@ async def findPublicCameras(place: str) -> dict:
     location = await globe.geocode(place)
     if location is None:
         raise ValueError(f"Couldn't locate {place!r}.")
+    target = None
+    if near.strip():
+        target = await globe.geocode(f"{near.strip()}, {place}") or await globe.geocode(near.strip())
+        if target is None:
+            raise ValueError(f"Found {location['label']}, but couldn't find {near.strip()!r} there.")
     url = "https://opencctv.org/?" + urlencode({
         "lat": location["lat"], "lng": location["lon"], "zoom": 12,
     })
@@ -56,17 +62,32 @@ async def findPublicCameras(place: str) -> dict:
     random.shuffle(nodes)
     order = {"hls": 0, "mp4": 0, "image-poll": 1, "iframe": 2}
     nodes.sort(key=lambda n: order[n["streamType"]])
+    if target:  # "closest to X": nearest first, so the feed check covers the right cameras
+        nodes.sort(key=lambda n: _km(target, n))
     # Camera servers go down (half of Colorado's were unreachable): open one that answers.
     alive = await _alive(nodes[:16])
-    nodes.sort(key=lambda n: (n["id"] not in alive, order[n["streamType"]]))
+    def rank(n: dict) -> tuple:
+        video = order[n["streamType"]] if prefer_video else 0
+        return (n["id"] not in alive, video, _km(target, n)) if target else (n["id"] not in alive, video)
+    nodes.sort(key=rank)
     _cameras = nodes
-    result = {"url": url, "label": location["label"], "count": len(nodes)}
+    result = {"url": url, "label": location["label"], "count": len(nodes), "camera": nodes[0]["title"]}
+    if target:
+        result["near"] = target["label"]
+        result["distance_km"] = round(_km(target, nodes[0]), 2)
+        location = {**location, "lat": target["lat"], "lon": target["lon"]}
     globe.focus.pop("cctv", None)
     globe.focus.update(lat=location["lat"], lon=location["lon"], alt=0.15,
                        label=location["label"], layers=["media"], replaceLayers=True,
                        media={"visible": True, "id": nodes[0]["id"], "nodes": nodes},
                        v=globe.focus["v"] + 1)
     return result
+
+
+def _km(point: dict, node: dict) -> float:
+    from nathan.opencctv import _km as km
+
+    return km(point["lat"], point["lon"], node["coordinates"][1], node["coordinates"][0])
 
 
 async def _alive(nodes: list[dict]) -> set[str]:

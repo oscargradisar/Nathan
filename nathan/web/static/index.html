@@ -53,6 +53,7 @@
   <a href="#accounts" data-view="accounts"><b>⚿</b><span>Accounts</span></a>
   <a href="#history" data-view="history"><b>≡</b><span>History</span></a>
   <a href="#systems" data-view="systems"><b>⚙</b><span>Systems</span></a>
+  <a href="#evolve" data-view="evolve"><b>✦</b><span>Evolve</span></a>
 </nav>
 
 <main id="main">
@@ -74,15 +75,19 @@
 
         <form id="cmd" class="cmd" autocomplete="off">
           <label class="sr-only" for="prompt">What do you need?</label>
-          <textarea id="prompt" rows="2" placeholder="What do you need?   / to focus · Enter to run · Shift+Enter for a new line"></textarea>
+          <textarea id="prompt" rows="2" placeholder="What do you need?   / to focus · Enter to run · drop or paste images to show Nathan"></textarea>
           <div class="cmd-row">
             <div class="modes" id="modes" role="radiogroup" aria-label="How Nathan should work"></div>
             <div class="cmd-actions">
+              <button type="button" id="attach-btn" class="icon-btn" title="Add images (or drop / paste them here)" aria-label="Add images">📎</button>
+              <input type="file" id="attach-file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>
               <button type="button" id="mic" class="icon-btn" title="Speak your request" aria-label="Speak your request">🎙</button>
               <button type="submit" id="go" class="go">RUN</button>
             </div>
           </div>
+          <div id="attachments" class="attachments" aria-label="Attached images"></div>
           <div id="mode-help" class="muted mode-help"></div>
+          <div class="drop-hint" aria-hidden="true">Drop images: Nathan will look at them</div>
         </form>
 
         <div id="route" class="route" hidden></div>
@@ -208,6 +213,28 @@
     <div id="sys-info" class="sys-info"></div>
     <div id="diag-units" class="units compact"></div>
     <pre id="diag-report" class="report" hidden></pre>
+  </section>
+  <section class="view" id="view-evolve" aria-label="Evolve" hidden>
+    <div class="view-head"><h1>Evolve</h1><p class="muted">Nathan improves its own code. Your lead manager builds the change on a separate copy, the full test suite checks it, and you apply it with one click, or let Autopilot keep going and apply whatever passes. Nothing touches your working copy until a change passes and is applied.</p>
+      <p class="muted" id="ev-source"></p></div>
+    <div class="panel ev-ask">
+      <label for="ev-goal" class="sr-only">What should Nathan change about itself?</label>
+      <textarea id="ev-goal" rows="3" placeholder="What should Nathan change about itself? e.g. “make the World view remember my last search”   (Ctrl+Enter)"></textarea>
+      <div class="row">
+        <button id="ev-go" class="go small">Improve</button>
+        <button id="ev-auto" class="mini">✦ Let Nathan choose</button>
+        <span class="spacer"></span>
+        <label class="muted" for="ev-rounds">Autopilot</label>
+        <select id="ev-rounds" class="mini"><option value="2">2 rounds</option><option value="3" selected>3 rounds</option><option value="5">5 rounds</option><option value="10">10 rounds</option></select>
+        <button id="ev-pilot" class="mini">Run autopilot</button>
+        <button id="ev-stop" class="mini" hidden>Stop autopilot</button>
+      </div>
+      <div class="muted" id="ev-pilot-note"></div>
+    </div>
+    <div class="row ev-restart" id="ev-restart-row" hidden>
+      <span>Changes were applied to Nathan's source.</span><button id="ev-restart" class="go small">Rebuild &amp; restart</button>
+    </div>
+    <div id="ev-jobs" class="ev-jobs"></div>
   </section>
 </main>
 

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import webbrowser
 from pathlib import Path
 
@@ -41,6 +42,7 @@ class RunIn(BaseModel):
     mode: str = "vote"
     models: list[str] | None = None
     n: int = 5
+    images: list[str] = []  # data: URLs dropped or pasted into the console
 
 
 class ManualIn(BaseModel):
@@ -59,6 +61,11 @@ class CameraOpenIn(BaseModel):
 
 class SettingsIn(BaseModel):
     manager: str
+
+
+class EvolveIn(BaseModel):
+    goal: str = ""   # empty: Nathan picks the improvement itself
+    rounds: int = 1  # more than 1: autopilot, applying each change whose tests pass
 
 
 class ScheduleIn(BaseModel):
@@ -249,6 +256,51 @@ def create_app(engine, hub: Hub | None = None, self_check: bool = False) -> Fast
         app.state.quit = True
         return {"quitting": True}
 
+    # ---- Evolve: Nathan improves its own code --------------------------------------------
+    from nathan.evolve import Evolver
+
+    evolver = app.state.evolver = Evolver(engine.data)
+
+    def _evolve_call(fn, *args):
+        try:
+            return fn(*args)
+        except KeyError as e:
+            raise HTTPException(404, "no such improvement") from e
+        except RuntimeError as e:
+            raise HTTPException(409, str(e)) from e
+
+    @app.get("/api/evolve")
+    def evolve_status() -> dict:
+        return evolver.status()
+
+    @app.get("/api/evolve/{job_id}")
+    def evolve_job(job_id: str) -> dict:
+        return _evolve_call(evolver.get, job_id).public(full=True)
+
+    @app.post("/api/evolve")
+    def evolve_start(body: EvolveIn) -> dict:
+        if body.rounds > 1:
+            _evolve_call(evolver.start_autopilot, body.rounds, body.goal[:2000])
+            return evolver.status()
+        return _evolve_call(evolver.start, body.goal[:2000]).public()
+
+    @app.post("/api/evolve/{job_id}/{action}")
+    def evolve_decide(job_id: str, action: str) -> dict:
+        if action not in ("apply", "discard"):
+            raise HTTPException(404, "unknown action")
+        return _evolve_call(getattr(evolver, action), job_id).public()
+
+    @app.post("/api/evolve-autopilot/stop")
+    def evolve_stop() -> dict:
+        evolver.stop_autopilot()
+        return evolver.status()
+
+    @app.post("/api/evolve-restart")
+    def evolve_restart() -> dict:
+        _evolve_call(evolver.restart, os.getpid())
+        app.state.quit = True  # the updater waits for us to close, then rebuilds and reopens
+        return {"restarting": True}
+
     @app.get("/api/settings")
     def settings() -> dict:
         from nathan import managers
@@ -396,9 +448,16 @@ def create_app(engine, hub: Hub | None = None, self_check: bool = False) -> Fast
     async def start_run(body: RunIn) -> dict:
         if body.mode not in RUN_MODES:
             raise HTTPException(400, f"mode must be one of {RUN_MODES}")
-        if not body.prompt.strip():
+        if not body.prompt.strip() and not body.images:
             raise HTTPException(400, "empty prompt")
-        run = runs.start(body.prompt, body.mode, body.models, max(1, min(body.n, 16)))
+        from nathan import vision
+
+        try:
+            images = vision.save(body.images, engine.data / "uploads") if body.images else []
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from e
+        run = runs.start(body.prompt.strip() or "What's in this image? Explain what matters.",
+                         body.mode, body.models, max(1, min(body.n, 16)), images)
         return {"id": run.id, "manual_prompt": manual_prompt(body.prompt), "sites": SITES}
 
     @app.get("/api/runs/{run_id}/events")

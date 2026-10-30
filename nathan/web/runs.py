@@ -91,16 +91,36 @@ class RunManager:
         return self.runs.get(run_id)
 
     def start(self, prompt: str, mode: str = "vote", models: list[str] | None = None,
-              n: int = 5) -> Run:
+              n: int = 5, images: list | None = None) -> Run:
         run = Run(uuid.uuid4().hex[:10], prompt, mode)
         self.runs[run.id] = run
         if len(self.runs) > self.keep:
             self.runs.pop(next(iter(self.runs)))
-        run._task = asyncio.create_task(self._execute(run, models, n))
+        run._task = asyncio.create_task(self._execute(run, models, n, images or []))
         return run
 
-    async def _execute(self, run: Run, models: list[str] | None, n: int) -> None:
+    async def _see(self, run: Run, images: list) -> None:
+        """Dropped images: one model with eyes describes each (in parallel), then the task
+        runs on the request plus those descriptions."""
+        from nathan import vision
+
+        async def one(i: int, path) -> tuple[str, str]:
+            uid = f"eyes{i}"
+            run.emit({"type": "working", "id": uid, "worker": "looking", "role": f"eyes · image {i}"})
+            text, who = await vision.look(self.engine, path, run.prompt)
+            run.emit({"type": "delivered", "id": uid, "worker": who, "role": "eyes", "text": text})
+            return text, who
+
         try:
+            seen = await asyncio.gather(*(one(i, p) for i, p in enumerate(images, 1)))
+        except RuntimeError as e:
+            raise NoModelAvailable(str(e)) from e
+        run.prompt = vision.brief(run.prompt, list(seen))
+
+    async def _execute(self, run: Run, models: list[str] | None, n: int, images: list | None = None) -> None:
+        try:
+            if images:
+                await self._see(run, images)
             mode = run.mode
             if mode == "auto":
                 from nathan.router import route

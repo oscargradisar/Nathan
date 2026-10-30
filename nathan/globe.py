@@ -21,7 +21,7 @@ import httpx2 as httpx
 from pydantic import BaseModel, Field
 
 from nathan.errors import NoModelAvailable
-from nathan.jsonutil import ask_json
+from nathan.jsonutil import race_json
 
 UA = {"user-agent": "Nathan/1.0 (https://github.com/oscargradisar/Nathan) httpx2"}
 _cache: dict[str, tuple[float, Any]] = {}
@@ -159,43 +159,72 @@ def parse_search(prompt: str) -> tuple[str, str, list[str]]:
 class WorldIntent(BaseModel):
     kind: Literal["cameras", "layers"]
     place: str = Field(max_length=300)
+    near: str = Field("", max_length=200)
+    prefer_video: bool = True
     layers: list[Literal["planes", "quakes", "iss", "shops"]] = Field(default_factory=list)
 
 
-async def interpret(engine, prompt: str) -> tuple[str, str, list[str]]:
+INTENT_BRIEF = """You turn a request for Nathan's globe into JSON. Think about what the person
+actually wants, then reply with ONLY this JSON:
+{"kind": "cameras" or "layers",
+ "place": "the area to search, as city, state/region, country (e.g. Pueblo, Colorado, United States)",
+ "near": "a specific landmark, business, street or address the camera should be closest to, else empty",
+ "prefer_video": true unless they only want the nearest camera whatever its type, or ask for photos/images,
+ "layers": subset of ["planes","quakes","iss","shops"] actually requested (cameras: [])}
+Rules: fix spelling and expand abbreviations; never put filler (random, somewhere, show me, video,
+closest, please) in place or near; keep a business name exactly as said (e.g. Mr Tandoori's restaurant
+-> near "Mr Tandoori"); a bare state or country is a valid place; empty place means worldwide (layers only).
+Examples:
+"video camera in pueblo colorado closest to Mr Tandoori's restaurant" ->
+ {"kind":"cameras","place":"Pueblo, Colorado, United States","near":"Mr Tandoori","prefer_video":true,"layers":[]}
+"random cam somewhere in colorado" -> {"kind":"cameras","place":"Colorado, United States","near":"","prefer_video":true,"layers":[]}
+"planes and quakes over japan" -> {"kind":"layers","place":"Japan","near":"","prefer_video":true,"layers":["planes","quakes"]}"""
+
+_NEAR = re.compile(r"\b(?:closest|nearest|close|next)\s+to\s+(?:the\s+)?(.+)$", re.IGNORECASE)
+
+
+def fallback_intent(prompt: str) -> WorldIntent:
+    """No model answered: rules only. 'closest to X' becomes the landmark."""
+    near = ""
+    if m := _NEAR.search(prompt.strip().strip("?.!")):
+        near = re.sub(r"(?:'s)?\s+(?:restaurant|store|shop|place|building)$", "", m.group(1).strip(), flags=re.IGNORECASE)
+        prompt = prompt[:m.start()]
+    kind, place, layers = parse_search(prompt)
+    return WorldIntent(kind=kind, place=place, near=near, layers=layers)
+
+
+async def interpret(engine, prompt: str) -> WorldIntent:
     if not prompt.strip() or len(prompt) > 500:
         raise ValueError("Describe what you want to see (up to 500 characters).")
-    refs = engine.fastest(["cheap", "fast"])[:1] if engine else []
+    # Capable models, three racing at once: the first sensible answer wins, a slow one can't stall it.
+    refs = engine.fastest(["reasoning"])[:6] if engine else []
     if refs:
-        messages = [{"role": "system", "content":
-            'Interpret a globe request. Return ONLY JSON: {"kind":"cameras" or "layers",'
-            '"place":"geocodable location only", "layers":["planes","quakes","iss","shops"]}. '
-            'Use only requested layers. Cameras use kind cameras and layers []. '
-            'Remove conversational filler, somewhere, random, and viewing instructions from place. '
-            'Normalize ambiguous places, e.g. Colorado -> Colorado, United States. '
-            'For random/any camera in a region, keep that region; do not invent a camera or street. '
-            'Empty place means worldwide for layers; cameras require a place.'},
-            {"role": "user", "content": prompt}]
+        messages = [{"role": "system", "content": INTENT_BRIEF}, {"role": "user", "content": prompt}]
         try:
-            intent, _ = await asyncio.wait_for(ask_json(
-                engine.client, refs, messages, WorldIntent, max_tokens=200, temperature=0), 6)
+            intent, _ = await asyncio.wait_for(race_json(
+                engine.client, refs, messages, WorldIntent, lanes=3, max_tokens=300, temperature=0), 15)
             if intent.kind == "layers" and not intent.layers:
                 intent.layers = ["planes"]
-            if intent.kind != "cameras" or intent.place.strip():
-                return intent.kind, intent.place.strip(), intent.layers
+            intent.place, intent.near = intent.place.strip(), intent.near.strip()
+            if intent.kind != "cameras" or intent.place:
+                return intent
         except (NoModelAvailable, TimeoutError):
             pass
-    return parse_search(prompt)
+    return fallback_intent(prompt)
 
 
 async def search(prompt: str, engine=None) -> dict:
-    kind, place, layers = await interpret(engine, prompt)
+    intent = await interpret(engine, prompt)
+    kind, place, layers = intent.kind, intent.place, intent.layers
     if kind == "cameras":
         from nathan.geomedia import findPublicCameras
 
-        camera = await findPublicCameras(place)
-        return {"kind": kind, "summary": f"Loaded {camera.get('count', 0)} public cameras near {camera['label']}.",
-                "focus": focus}
+        cam = await findPublicCameras(place, intent.near, intent.prefer_video)
+        summary = f"Loaded {cam['count']} public cameras near {cam['label']}."
+        if cam.get("near"):
+            summary = (f"Closest working camera to {cam['near']}: {cam['camera']} "
+                       f"({cam['distance_km']} km away). {cam['count']} cameras loaded.")
+        return {"kind": kind, "summary": summary, "focus": focus}
     location = await geocode(place) if place else None
     if place and location is None:
         raise ValueError(f"Couldn't find {place!r}. Try a city, country or address.")

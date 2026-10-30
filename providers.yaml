@@ -43,10 +43,10 @@ providers:
     models:
       # "-latest" aliases follow Google's current Flash models; check AI Studio for your project's limits
       gemini-flash-latest:
-        tags: [long_context, reasoning, judge, writing, planner, tools]
+        tags: [long_context, reasoning, judge, writing, planner, tools, vision]
         limits: {rpm: 5, rpd: 100}
       gemini-flash-lite-latest:
-        tags: [long_context, fast, cheap]
+        tags: [long_context, fast, cheap, vision]
         limits: {rpm: 10, rpd: 500}
       gemma-4-31b-it:
         tags: [writing, reasoning, long_context]

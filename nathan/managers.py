@@ -111,22 +111,28 @@ def install(m: Manager) -> str:
     return m.cli() or ""
 
 
-def _args(m: Manager, cli: str, web: bool) -> list[str]:
+def _args(m: Manager, cli: str, web: bool, images: list[Path] = ()) -> list[str]:
     if m.id == "claude":
         args = [cli, "-p", "--output-format", "json", "--no-session-persistence"]
-        return args + (["--allowedTools", "WebSearch", "WebFetch"] if web else [])
+        tools = (["WebSearch", "WebFetch"] if web else []) + (["Read"] if images else [])
+        args += [a for d in {str(i.parent) for i in images} for a in ("--add-dir", d)]
+        return args + (["--allowedTools", *tools] if tools else [])
     return [cli, *(["--search"] if web else []), "exec", "--skip-git-repo-check", "--ephemeral",
-            "-s", "read-only", "-"]
+            "-s", "read-only", *[a for i in images for a in ("-i", str(i))], "-"]
 
 
-async def ask(m: Manager, prompt: str, *, web: bool = False, timeout: float = TIMEOUT_S) -> str:
+async def ask(m: Manager, prompt: str, *, web: bool = False, timeout: float = TIMEOUT_S,
+              images: list[Path] = ()) -> str:
     """One question to this manager, answered with your own plan. web=True lets it search
-    the live web itself. Raises RuntimeError with a plain reason."""
+    the live web itself; images are attached (ChatGPT) or read from disk (Claude).
+    Raises RuntimeError with a plain reason."""
     cli = m.cli()
     if not cli:
         raise RuntimeError(f"{m.name} isn't connected: install and sign in under Accounts")
+    if images and m.id == "claude":
+        prompt += "\n\nThe image(s): " + ", ".join(str(i) for i in images) + " (open them with Read)."
     try:
-        out = await asyncio.wait_for(asyncio.to_thread(_run, _args(m, cli, web), prompt, timeout),
+        out = await asyncio.wait_for(asyncio.to_thread(_run, _args(m, cli, web, images), prompt, timeout),
                                      timeout + 5)
     except (subprocess.TimeoutExpired, TimeoutError) as e:
         raise RuntimeError(f"{m.name} didn't answer within {timeout:.0f}s") from e

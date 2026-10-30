@@ -39,9 +39,9 @@ async def test_search_geocodes_only_place_and_replaces_layers(monkeypatch):
 async def test_search_camera_dispatch_and_missing_place(monkeypatch):
     calls = []
 
-    async def cameras(place):
+    async def cameras(place, near="", prefer_video=True):
         calls.append(place)
-        return {"url": "https://opencctv.org/?lat=1&lng=2&zoom=12", "label": place}
+        return {"url": "https://opencctv.org/?lat=1&lng=2&zoom=12", "label": place, "count": 1}
 
     monkeypatch.setattr(geomedia, "findPublicCameras", cameras)
     result = await globe.search("public cameras in Ljubljana")
@@ -82,11 +82,12 @@ async def test_fast_worker_normalizes_conversational_camera_request(monkeypatch)
         asked.append((refs, messages[-1]["content"]))
         return schema(kind="cameras", place="Colorado, United States", layers=[]), refs[0]
 
-    monkeypatch.setattr(globe, "ask_json", answer)
+    monkeypatch.setattr(globe, "race_json", answer)
     engine = SimpleNamespace(fastest=lambda tags: ["fastest/model", "other/model"], client=object())
     prompt = "Open a camera of colorado somewhere random"
-    assert await globe.interpret(engine, prompt) == ("cameras", "Colorado, United States", [])
-    assert asked == [(["fastest/model"], prompt)]
+    intent = await globe.interpret(engine, prompt)
+    assert (intent.kind, intent.place, intent.near) == ("cameras", "Colorado, United States", "")
+    assert asked == [(["fastest/model", "other/model"], prompt)]
 
 
 async def test_worker_timeout_falls_back_without_filler(monkeypatch):
@@ -97,7 +98,10 @@ async def test_worker_timeout_falls_back_without_filler(monkeypatch):
     async def timeout(*args, **kwargs):
         raise TimeoutError
 
-    monkeypatch.setattr(globe, "ask_json", timeout)
+    monkeypatch.setattr(globe, "race_json", timeout)
     engine = SimpleNamespace(fastest=lambda tags: ["fast/model"], client=object())
-    assert await globe.interpret(engine, "Open a camera of colorado somewhere random") == (
-        "cameras", "colorado", [])
+    intent = await globe.interpret(engine, "Open a camera of colorado somewhere random")
+    assert (intent.kind, intent.place, intent.layers) == ("cameras", "colorado", [])
+    # rules alone still split the landmark off the place
+    intent = await globe.interpret(engine, "video camera in pueblo colorado closest to Mr Tandoori's restaurant")
+    assert (intent.place, intent.near) == ("pueblo colorado", "Mr Tandoori")
