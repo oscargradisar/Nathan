@@ -63,6 +63,11 @@ class SettingsIn(BaseModel):
     manager: str
 
 
+class CanvasIn(BaseModel):
+    url: str
+    token: str
+
+
 class EvolveIn(BaseModel):
     goal: str = ""   # empty: Nathan picks the improvement itself
     rounds: int = 1  # more than 1: autopilot, applying each change whose tests pass
@@ -255,6 +260,24 @@ def create_app(engine, hub: Hub | None = None, self_check: bool = False) -> Fast
         # Memory, history and quota are written to SQLite as they happen; nothing is pending.
         app.state.quit = True
         return {"quitting": True}
+
+    @app.get("/api/canvas")
+    def canvas_status() -> dict:
+        from nathan.tools import canvas
+
+        cfg = canvas.settings()
+        return {"connected": bool(cfg), "url": cfg[0] if cfg else ""}
+
+    @app.post("/api/canvas")
+    async def canvas_connect(body: CanvasIn) -> dict:
+        from nathan.tools import canvas
+
+        try:
+            return {"name": await canvas.connect(body.url, body.token)}
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from e
+        except Exception as e:
+            raise HTTPException(502, "Couldn't reach that Canvas address.") from e
 
     # ---- Evolve: Nathan improves its own code --------------------------------------------
     from nathan.evolve import Evolver

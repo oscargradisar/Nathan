@@ -40,7 +40,8 @@ Patterns:
 - plan: big multi-part jobs (research + write a brief/report, compare many things).
 - agent: needs files in the workspace, running Python, fetching a web page, or doing something on
   this computer: opening/launching a game, app or website ("open Rhythia", "play Terraria"), or
-  messaging someone on Discord or by email ("message Sam on discord saying ...").
+  messaging someone on Discord or by email ("message Sam on discord saying ..."), or school
+  work on Canvas ("pull up my pre-lab assignment").
 - research: factual questions that need real sources: niche facts, specifics, history, science,
   "who/what/when/how many", anything a model might misremember. Prefer this for factual questions.
 - code: write a program, script, app or tool (not a quick snippet or a bug question)."""
@@ -86,6 +87,9 @@ def heuristic_route(question: str) -> Route:
 async def route(engine, question: str) -> Route:  # engine: nathan.engine.Engine
     # Routing is pure overhead to the person waiting, so the quickest models do it, and if
     # they dawdle the keyword rules decide instantly instead.
+    if re.search(r"\b(canvas|assignments?|homework|pre-?lab|syllabus|quiz(zes)?)\b", question, re.IGNORECASE):
+        # School work lives behind the Canvas tool: go straight to the agent, no routing hop
+        return Route(task_type="analysis", pattern="agent", reason="Canvas request", by="shortcut")
     refs = engine.fastest(["cheap", "fast"])[:3]
     if not refs:
         return heuristic_route(question)

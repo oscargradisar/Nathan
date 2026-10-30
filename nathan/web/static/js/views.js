@@ -35,7 +35,24 @@ export async function renderAccounts() {
   accounts = (await api("/api/connect")).providers;
   const box = $("accounts"); box.textContent = "";
   for (const p of accounts) box.append(accountCard(p));
+  box.append(await canvasCard());
   return accounts;
+}
+
+// Canvas (school): an address + personal access token, checked against Canvas, kept in the keychain.
+async function canvasCard() {
+  const st = await api("/api/canvas").catch(() => ({ connected: false }));
+  const url = el("input", { type: "url", placeholder: "https://yourschool.instructure.com", value: st.url || "", "aria-label": "Canvas address" });
+  const token = el("input", { type: "password", placeholder: "access token", "aria-label": "Canvas access token" });
+  const save = el("button", { class: "mini", onclick: async () => {
+    try { const r = await api("/api/canvas", { url: url.value, token: token.value }); play("done"); toast(`Canvas connected as ${r.name}.`); renderAccounts(); }
+    catch (e) { play("fail"); toast(e.message, 6000); }
+  } }, st.connected ? "Replace" : "Connect");
+  const state = st.connected ? "connected" : "not connected";
+  return el("div", { class: "panel acct" },
+    el("div", { class: "a-top" }, el("span", { class: "a-name" }, "canvas"), el("span", { class: "state " + state.replace(" ", "-") }, STATE[state] || state)),
+    el("div", { class: "a-info" }, "school assignments · Canvas → Account → Settings → + New Access Token, then paste it here with your school's Canvas address"),
+    el("div", { class: "paste open" }, url, token, save));
 }
 
 function accountCard(p) {

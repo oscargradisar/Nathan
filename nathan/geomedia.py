@@ -75,7 +75,8 @@ async def findPublicCameras(place: str, near: str = "", prefer_video: bool = Tru
     if target:
         result["near"] = target["label"]
         result["distance_km"] = round(_km(target, nodes[0]), 2)
-        location = {**location, "lat": target["lat"], "lon": target["lon"]}
+        location = {**location, "lat": target["lat"], "lon": target["lon"],
+                    "label": f"{nodes[0]['title']}, the closest working camera to {target['label']}"[:160]}
     globe.focus.pop("cctv", None)
     globe.focus.update(lat=location["lat"], lon=location["lon"], alt=0.15,
                        label=location["label"], layers=["media"], replaceLayers=True,

@@ -78,7 +78,7 @@ class Toolbox:
 
 
 def default_toolbox(memory=None, workspace=None, engine=None) -> Toolbox:
-    from nathan.tools import database, desktop, fetch, files, python_exec
+    from nathan.tools import canvas, database, desktop, fetch, files, python_exec
 
     box = Toolbox()
     for tool in files.make_tools(workspace):
@@ -86,7 +86,7 @@ def default_toolbox(memory=None, workspace=None, engine=None) -> Toolbox:
     box.add(python_exec.make_tool(workspace))
     box.add(fetch.make_tool())
     box.add(database.make_tool(workspace))
-    for tool in desktop.make_tools():
+    for tool in desktop.make_tools() + canvas.make_tools():
         box.add(tool)
 
     async def world(place: str, layers: str = "") -> str:
