@@ -84,7 +84,7 @@ def ask(
     mode: Annotated[str | None, typer.Option(
         "--mode", help="auto | single | race | vote | critique | plan | workflow | overlord | "
                        "research | code | agent | autopilot | each "
-                         "(default: auto, or each with several -m)")
+                       "(default: auto, or each with several -m)")
     ] = None,
     n: Annotated[int, typer.Option("--n", help="how many models to fan out to")] = 4,
     quiet: Annotated[bool, typer.Option("--quiet", "-q", help="only the final answer")] = False,
