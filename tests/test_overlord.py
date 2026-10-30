@@ -104,6 +104,28 @@ async def test_tools_part_runs_through_the_agent_loop(make_engine, monkeypatch, 
     assert next(r for r in engine.staff.board() if r["ref"] == wf.worker["t1"])["done"] >= 1
 
 
+async def test_tools_part_answers_without_tools_when_every_agent_fails(make_engine, monkeypatch):
+    """Seen live: parallel tool agents ran every model out of per-minute tokens. The part
+    must still deliver, from a plain worker, instead of failing."""
+    from nathan.errors import QuotaExceeded
+
+    plan = {**PLAN, "tasks": [{"id": "t1", "instruction": "read the Notion pricing page",
+                               "depends_on": [], "tags": ["tools"]}]}
+    base = responder_for({})
+
+    def responder(ref, messages, **kw):
+        if "You have tools" in str(messages[0]["content"]):
+            return QuotaExceeded("429 tokens per minute")
+        return base(ref, messages, **kw)
+
+    engine = make_engine(responder)
+    claude_boss(monkeypatch, [json.dumps(plan)])
+    events = []
+    wf = await run_workflow(engine, "Compare note apps", events.append, overlord=True)
+    assert wf.results["t1"].startswith("work by")
+    assert any(e["type"] == "reassigned" and "without them" in e["reason"] for e in events)
+
+
 # ---- managers as researchers -------------------------------------------------------------
 
 

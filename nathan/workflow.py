@@ -44,6 +44,7 @@ BENCH_BELOW = 150  # pick score this far under a new model's: benched (slow or u
 REDO_BELOW = 5  # parts the reviewer scores below this get redone once by someone else
 SLOW_SCORE = 2.0  # what a worker scores when a backup had to finish its part
 AGENT_STEPS = 6  # tool calls a "tools" part may make before it must answer
+TOOL_TRIES = 12  # models a "tools" part may hand over to before answering without tools
 
 WORKER_SYSTEM = ("You are one worker on a team of AI models. Do ONLY the part you are given, "
                  "thoroughly and factually. Say plainly if you are unsure of a fact.")
@@ -258,16 +259,22 @@ async def _do_tool_task(engine, wf: Workflow, task: Subtask, chain: list[str], e
     await _emit(emit, {"type": "working", "id": task.id, "worker": chain[0], "role": "worker"})
     start = time.perf_counter()
     try:
-        r = await run_agent(engine.client, chain[:MAX_TRIES],
+        # Fetched pages are big, so tool agents hit per-minute token limits quickly: a longer
+        # chain than plain parts get, so one busy provider can't sink the part
+        r = await run_agent(engine.client, chain[:TOOL_TRIES],
                             _worker_messages(wf, task, feedback, TOOL_WORKER_SYSTEM), toolbox,
                             max_steps=AGENT_STEPS, on_event=on_event)
+        reason = "" if r.answer.strip() else "empty answer"
     except NoModelAvailable as e:
-        await _emit(emit, {"type": "task_failed", "id": task.id, "role": "worker",
-                           "reason": str(e)[:120]})
-        return
-    if not r.answer.strip():
-        await _emit(emit, {"type": "task_failed", "id": task.id, "role": "worker",
-                           "reason": "empty answer"})
+        reason = str(e)
+    if reason:  # no tools worked out: a plain worker answers from what it knows
+        await _emit(emit, {"type": "reassigned", "id": task.id, "role": "worker", "from": chain[0],
+                           "worker": chain[0], "reason": f"tools failed ({reason[:80]}); answering "
+                                                         "without them"})
+        got = await hedged(engine, task.id, chain, _worker_messages(wf, task, feedback), emit,
+                           wf.no_shows[task.id], slow=wf.slow)
+        if got:
+            wf.worker[task.id], wf.results[task.id] = got[0], got[1].text
         return
     ref, ms = r.models[-1], (time.perf_counter() - start) * 1000  # the model that answered
     engine.staff.record(ref, ok=True, ms=ms)

@@ -268,3 +268,18 @@ async def test_gate_folder_questions_and_cross_session_recall(tmp_path, make_eng
     engine2.memory = Memory(Path(engine1.data) / "memory.sqlite", session="later")
     ans2 = await engine2.ask("What is my cat called?", mode="single")
     assert ans2.text == "Your cat is Miso."
+
+
+async def test_a_tool_that_hangs_is_stopped_and_reported():
+    import asyncio
+
+    from nathan.tools.base import Tool, Toolbox, params
+
+    async def stuck(question: str) -> str:
+        await asyncio.sleep(30)
+        return "never"
+
+    box = Toolbox(timeout=0.05)
+    box.add(Tool("research", "slow", params(question=("string", "q")), stuck))
+    out = await box.call("research", {"question": "x"})
+    assert out.startswith("ERROR: research took longer")

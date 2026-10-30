@@ -15,6 +15,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 MAX_RESULT_CHARS = 8000
+# A tool that takes longer hands the model an error instead of stalling its whole job
+# (seen live: research inside an agent ran for minutes while providers were rate-limited)
+TOOL_TIMEOUT_S = 120.0
 
 
 @dataclass
@@ -39,6 +42,7 @@ def params(required: list[str] | None = None, **props: tuple[str, str]) -> dict[
 @dataclass
 class Toolbox:
     tools: dict[str, Tool] = field(default_factory=dict)
+    timeout: float = TOOL_TIMEOUT_S
 
     def add(self, tool: Tool) -> None:
         self.tools[tool.name] = tool
@@ -64,15 +68,21 @@ class Toolbox:
                 raise TypeError("arguments must be a JSON object")
         except (ValueError, TypeError) as e:
             return f"ERROR: bad arguments for {name}: {e}"
-        try:
+        async def run() -> Any:
             if inspect.iscoroutinefunction(tool.func):
-                out = await tool.func(**args)
-            else:
-                # Plain functions (Discord typing, Start-menu scans, file searches) can take
-                # seconds; in a thread they don't freeze every other run and the live streams
-                out = await asyncio.to_thread(tool.func, **args)
-                if asyncio.iscoroutine(out):  # a lambda that returns a coroutine (run_python)
-                    out = await out
+                return await tool.func(**args)
+            # Plain functions (Discord typing, Start-menu scans, file searches) can take
+            # seconds; in a thread they don't freeze every other run and the live streams
+            out = await asyncio.to_thread(tool.func, **args)
+            if asyncio.iscoroutine(out):  # a lambda that returns a coroutine (run_python)
+                out = await out
+            return out
+
+        try:
+            out = await asyncio.wait_for(run(), self.timeout)
+        except TimeoutError:
+            return (f"ERROR: {name} took longer than {self.timeout:.0f}s and was stopped. "
+                    "Carry on without it, or try something simpler.")
         except TypeError as e:
             return f"ERROR: wrong arguments for {name}: {e}"
         except Exception as e:  # noqa: BLE001 - report any tool failure back to the model
