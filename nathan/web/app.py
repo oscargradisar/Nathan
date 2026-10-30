@@ -265,8 +265,10 @@ def create_app(engine, hub: Hub | None = None, self_check: bool = False) -> Fast
 
     job_store = app.state.jobs = JobStore(engine.data)
 
+    # async: these read memory's SQLite connection, which the event loop also uses (and a
+    # sqlite3 connection can't be shared by two threads at once)
     @app.get("/api/jobs")
-    def jobs_list(archived: bool = False) -> dict:
+    async def jobs_list(archived: bool = False) -> dict:
         rows = engine.memory.db.execute(
             "SELECT json_extract(meta, '$.job'), COUNT(*), MAX(ts) FROM entries "
             "WHERE kind = 'question' AND json_extract(meta, '$.job') IS NOT NULL GROUP BY 1").fetchall()
@@ -290,7 +292,7 @@ def create_app(engine, hub: Hub | None = None, self_check: bool = False) -> Fast
             raise HTTPException(400, str(e)) from e
 
     @app.get("/api/jobs/{job_id}/history")
-    def jobs_history(job_id: str) -> dict:
+    async def jobs_history(job_id: str) -> dict:
         rows = engine.memory._rows(
             "SELECT id, ts, session, kind, content, meta FROM entries WHERE kind = 'answer' "
             "AND json_extract(meta, '$.job') = ? ORDER BY id DESC LIMIT 100", (job_id,))

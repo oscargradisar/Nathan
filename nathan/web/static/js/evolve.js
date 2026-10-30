@@ -98,10 +98,11 @@ function diffView(diff) {
 
 // The full job (diff, test report) only changes with its status, so it's downloaded again
 // only then. While it runs, the work log is updated from the light status poll instead.
-async function detailFor(c, j) {
+async function detailFor(c, j, seq) {
   const sig = `${j.status}|${j.passed}`;
   if (!c.detail || c.detail.sig !== sig) {
     const node = await detail(j);
+    if (seq !== refreshSeq) return null;  // a newer refresh owns this card now: don't swap its node
     if (c.detail) for (const old of c.detail.node.querySelectorAll("details[data-k]")) {  // keep what you had open
       const twin = node.querySelector(`details[data-k="${old.dataset.k}"]`);
       if (twin) twin.open = old.open;
@@ -110,11 +111,17 @@ async function detailFor(c, j) {
     c.detail = { sig, node };
   }
   const log = c.detail.node.querySelector(".ev-log");
-  const text = j.log.join("\n") || "…";
-  if (log && LIVE.has(j.status) && log.textContent !== text) {
-    const atEnd = log.scrollTop + log.clientHeight >= log.scrollHeight - 8;
-    log.textContent = text;
-    if (atEnd) log.scrollTop = log.scrollHeight;  // follow the log, unless you scrolled up to read
+  if (log && LIVE.has(j.status) && j.log.length) {
+    // The light poll sends only the last 60 lines, the opened detail had them all: append
+    // what's new after the line we already show, so earlier lines don't vanish
+    const shown = log.textContent === "…" ? [] : log.textContent.split("\n");
+    const k = shown.length ? j.log.lastIndexOf(shown[shown.length - 1]) : -1;
+    const fresh = shown.length && k < 0 ? j.log : j.log.slice(k + 1);
+    if (fresh.length) {
+      const atEnd = log.scrollTop + log.clientHeight >= log.scrollHeight - 8;
+      log.textContent = shown.concat(fresh).join("\n");
+      if (atEnd) log.scrollTop = log.scrollHeight;  // follow the log, unless you scrolled up to read
+    }
   }
   return c.detail.node;
 }
@@ -172,7 +179,7 @@ async function refresh() {
   const want = [];
   for (const j of s.jobs) {
     const c = cardFor(j);
-    if (openId === j.id) { const node = await detailFor(c, j); if (seq !== refreshSeq) return; if (node.parentNode !== c.card) c.card.append(node); }
+    if (openId === j.id) { const node = await detailFor(c, j, seq); if (seq !== refreshSeq || !node) return; if (node.parentNode !== c.card) c.card.append(node); }
     else c.detail?.node.remove();
     want.push(c.card);
   }

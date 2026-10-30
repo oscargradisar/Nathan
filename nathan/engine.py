@@ -190,11 +190,11 @@ class Engine:
                           note=wf.review.summary if wf.review else "",
                           extra={"review": wf.review.model_dump() if wf.review else None})
         if mode == "auto":
-            from nathan.router import route
+            from nathan.router import route, run_mode
 
             question_text = "\n\n".join(str(m["content"]) for m in messages if m["role"] == "user")
             r = await route(self, question_text)
-            pattern = {"plan": "overlord", "agent": "autopilot"}.get(r.pattern, r.pattern)
+            pattern = await run_mode(r)
             await _emit(on_event, {"type": "routed", "pattern": pattern, "task_type": r.task_type,
                                    "reason": r.reason, "by": r.by})
             ans = await self._run(messages, mode=pattern, models=models, n=n,

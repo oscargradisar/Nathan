@@ -174,10 +174,10 @@ class RunManager:
                 await self._see(run, images)
             mode = run.mode
             if mode == "auto":
-                from nathan.router import route
+                from nathan.router import route, run_mode
 
                 r = await route(self.engine, run.prompt)
-                mode = {"plan": "overlord", "agent": "autopilot"}.get(r.pattern, r.pattern)
+                mode = await run_mode(r)
                 run.emit({"type": "routed", "pattern": mode, "task_type": r.task_type,
                           "reason": r.reason, "by": r.by})
             if mode == "swarm":  # everyone who can answer, at once
@@ -336,6 +336,8 @@ class RunManager:
                 run.emit({"type": "stopped"})
             except NathanError as e:
                 run.emit({"type": "error", "message": str(e)})
+            except Exception as e:  # noqa: BLE001 - as in _execute: show it, don't end silently
+                run.emit({"type": "error", "message": f"internal error: {type(e).__name__}: {e}"})
             finally:
                 run.finished = True
                 run.emit({"type": "done"})

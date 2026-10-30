@@ -145,10 +145,16 @@ def default_toolbox(memory=None, workspace=None, engine=None) -> Toolbox:
                      "models cross-check, returns a cited answer. Use for facts you aren't sure of.",
                      params(question=("string", "the question")), research))
     if memory is not None:
+        # Async on purpose: plain tools run in a thread, and memory's SQLite connection is
+        # shared with the event loop, which can't be used from two threads at once
+        async def remember(fact: str) -> str:
+            return memory.remember(fact)
+
+        async def recall(query: str) -> str:
+            return "\n".join(f"- {e.content}" for e in memory.search(query, 5)) or "nothing found"
+
         box.add(Tool("remember", "Save a fact for future sessions.",
-                     params(fact=("string", "the fact to remember")), memory.remember))
+                     params(fact=("string", "the fact to remember")), remember))
         box.add(Tool("recall", "Search notes and answers from earlier sessions.",
-                     params(query=("string", "what to look for")),
-                     lambda query: "\n".join(f"- {e.content}" for e in memory.search(query, 5))
-                     or "nothing found"))
+                     params(query=("string", "what to look for")), recall))
     return box

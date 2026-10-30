@@ -22,34 +22,43 @@ function loadLib() {
   });
 }
 
+let building = null;  // one globe, even if World is opened twice before the library loads
+
 export async function openWorld() {
   if (!world) {
-    try { await loadLib(); } catch { toast("The 3D globe needs an internet connection."); return; }
-    const box = $("globe");
-    world = window.Globe()(box)
-      .globeImageUrl(IMG + "earth-night.jpg").bumpImageUrl(IMG + "earth-topology.png")
-      .backgroundImageUrl(IMG + "night-sky.png").atmosphereColor("#3fd3ff").atmosphereAltitude(0.18)
-      .pointLat("lat").pointLng("lon").pointColor((d) => LAYERS[d.layer].color)
-      .pointAltitude((d) => d.layer === "iss" ? 0.06 : d.layer === "quakes" ? Math.max(0.01, d.mag / 40) : 0.01)
-      .pointRadius((d) => LAYERS[d.layer].size * (d.layer === "quakes" ? Math.max(0.4, d.mag / 3) : 1))
-      .pointLabel((d) => `<div class="g-tip"><b>${esc(d.label || "")}</b>${tip(d)}</div>`)
-      .onPointClick((d) => readout(d))
-      .ringLat("lat").ringLng("lon").ringColor(() => (t) => `rgba(63,211,255,${1 - t})`)
-      .ringMaxRadius(4).ringPropagationSpeed(2).ringRepeatPeriod(1400)
-      .width(box.clientWidth).height(box.clientHeight);
-    world.controls().autoRotate = true; world.controls().autoRotateSpeed = 0.35;
-    addEventListener("resize", () => !$("view-world").hidden && world.width($("globe").clientWidth).height($("globe").clientHeight));
-    media = new GeoMediaLayer(world, drawCount);
-    buildControls();
-    // Both timers idle while the World view is hidden: no network or redraws in the background.
-    setInterval(() => { if (!hidden()) followFocus(); }, 2500);
-    setInterval(() => { if (!hidden() && on.has("iss")) refresh("iss"); }, 8000);
+    building ||= build();
+    if (!(await building)) { building = null; return; }
   } else {
     const box = $("globe");  // the window may have been resized while we were away
     world.width(box.clientWidth).height(box.clientHeight).resumeAnimation();
   }
+  if ($("view-world").hidden) { world.pauseAnimation(); return; }  // left before it finished loading
   for (const l of on) refresh(l);
   followFocus();
+}
+
+async function build() {
+  try { await loadLib(); } catch { toast("The 3D globe needs an internet connection."); return false; }
+  const box = $("globe");
+  world = window.Globe()(box)
+    .globeImageUrl(IMG + "earth-night.jpg").bumpImageUrl(IMG + "earth-topology.png")
+    .backgroundImageUrl(IMG + "night-sky.png").atmosphereColor("#3fd3ff").atmosphereAltitude(0.18)
+    .pointLat("lat").pointLng("lon").pointColor((d) => LAYERS[d.layer].color)
+    .pointAltitude((d) => d.layer === "iss" ? 0.06 : d.layer === "quakes" ? Math.max(0.01, d.mag / 40) : 0.01)
+    .pointRadius((d) => LAYERS[d.layer].size * (d.layer === "quakes" ? Math.max(0.4, d.mag / 3) : 1))
+    .pointLabel((d) => `<div class="g-tip"><b>${esc(d.label || "")}</b>${tip(d)}</div>`)
+    .onPointClick((d) => readout(d))
+    .ringLat("lat").ringLng("lon").ringColor(() => (t) => `rgba(63,211,255,${1 - t})`)
+    .ringMaxRadius(4).ringPropagationSpeed(2).ringRepeatPeriod(1400)
+    .width(box.clientWidth).height(box.clientHeight);
+  world.controls().autoRotate = true; world.controls().autoRotateSpeed = 0.35;
+  addEventListener("resize", () => !$("view-world").hidden && world.width($("globe").clientWidth).height($("globe").clientHeight));
+  media = new GeoMediaLayer(world, drawCount);
+  buildControls();
+  // Both timers idle while the World view is hidden: no network or redraws in the background.
+  setInterval(() => { if (!hidden()) followFocus(); }, 2500);
+  setInterval(() => { if (!hidden() && on.has("iss")) refresh("iss"); }, 8000);
+  return true;
 }
 
 // Leaving the World view: stop the 3D render loop, which would otherwise spin the GPU forever.

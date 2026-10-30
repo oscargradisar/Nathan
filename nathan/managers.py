@@ -113,7 +113,9 @@ async def run_process(args: list[str], stdin: str | None = None, timeout: float 
         try:
             out, err = await asyncio.wait_for(asyncio.to_thread(proc.communicate, stdin), timeout)
         except BaseException:  # TimeoutError or CancelledError: stop the CLI, then pass it on
-            _stop(proc)
+            # taskkill and the wait take up to seconds: in a thread, so every other run and
+            # stream keeps going; shielded, so a second cancel can't skip the kill
+            await asyncio.shield(asyncio.to_thread(_stop, proc))
             raise
         return subprocess.CompletedProcess(args, proc.returncode, out, err)
 

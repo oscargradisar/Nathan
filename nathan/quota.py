@@ -139,8 +139,10 @@ class QuotaManager:
             snap.blocks[(p, m)] = (until, reason)
         snap.gone = {(p, m) for p, m in self.db.execute(
             "SELECT provider, model FROM gone WHERE 1" + only, args)}
+        # Header values a day old describe a quota window that has reset since
         for p, m, name, value in self.db.execute(
-                "SELECT provider, model, name, value FROM live WHERE 1" + only, args):
+                "SELECT provider, model, name, value FROM live WHERE updated > ?" + only,
+                (now - DAY, *args)):
             snap.live[(p, m, name)] = value
         for p, m, day_reqs, day_toks, minute_reqs in self.db.execute(
                 "SELECT provider, model, COUNT(*), COALESCE(SUM(tokens), 0), SUM(ts > ?) "
@@ -228,7 +230,11 @@ class QuotaManager:
 
     def block(self, provider: str, model: str, seconds: float, reason: str,
               commit: bool = True) -> None:
-        self.db.execute("INSERT OR REPLACE INTO blocks VALUES (?,?,?,?)",
+        # The later expiry wins: a short pause (a 429 retry, a per-minute header) must not
+        # cut short a longer bench already in place (a timeout, a daily limit, a bad key)
+        self.db.execute("INSERT INTO blocks VALUES (?,?,?,?) ON CONFLICT (provider, model) DO UPDATE "
+                        "SET reason = CASE WHEN excluded.until > until THEN excluded.reason ELSE reason END, "
+                        "until = MAX(until, excluded.until)",
                         (provider, model, self.clock() + seconds, reason))
         if commit:
             self.db.commit()

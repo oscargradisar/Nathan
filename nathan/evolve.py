@@ -187,6 +187,9 @@ class Evolver:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._swept = False
         self._save_lock = threading.Lock()  # apply/discard save from worker threads
+        # One decision at a time: a double-clicked Apply, or Discard during autopilot's Apply,
+        # would otherwise run git on the same copy and source from two threads at once
+        self._decide_lock = threading.Lock()
         self._load_jobs()
         self.ideas: list[dict] = [i for i in self._load("ideas.json") if isinstance(i, dict) and i.get("title")]
 
@@ -303,8 +306,8 @@ class Evolver:
         job.branch = f"evolve/{time.strftime('%Y%m%d-%H%M')}-{job.id}"
         work = self.data / "evolve" / job.id
         work.parent.mkdir(parents=True, exist_ok=True)
+        job.path = str(work)  # set first: a Discard during the add must still find the folder
         await asyncio.to_thread(_git, self.source, "worktree", "add", "-b", job.branch, str(work), "HEAD")
-        job.path = str(work)
         job.say(f"{m.name} is working on a separate copy (branch {job.branch}).")
         job.status = "working"
 
@@ -364,8 +367,8 @@ class Evolver:
         finally:
             # Timeout, Stop & discard or a crash: the agent must not keep editing (or using
             # your plan). Kill the whole tree: on Windows the CLI is a .cmd shim around node.
-            if proc.returncode is None:
-                managers.kill_tree(proc.pid)
+            if proc.returncode is None:  # taskkill takes a moment: off the event loop
+                await asyncio.shield(asyncio.to_thread(managers.kill_tree, proc.pid))
             await proc.wait()
 
     async def _verify(self, cwd: Path) -> tuple[bool, str]:
@@ -385,7 +388,10 @@ class Evolver:
     # ---- your decision (these run in a worker thread: git can take a while) -----------------
 
     def apply(self, job_id: str) -> Job:
-        job = self.get(job_id)
+        with self._decide_lock:
+            return self._apply(self.get(job_id))
+
+    def _apply(self, job: Job) -> Job:
         if job.status != "ready":
             raise RuntimeError("Only a finished change whose tests pass can be applied.")
         if _git(self.source, "status", "--porcelain", "--untracked-files=no").strip():
@@ -414,19 +420,31 @@ class Evolver:
         return job
 
     def discard(self, job_id: str) -> Job:
-        job = self.get(job_id)
-        job.discarding = True
-        task = job.task
-        if task is not None and not task.done() and self._loop is not None:
-            # This usually runs in a worker thread, and an asyncio task may only be cancelled
-            # from its own loop. Its finally block cleans up once the agent has really exited.
-            self._loop.call_soon_threadsafe(task.cancel)
-            job.say("Stopping…")
+        with self._decide_lock:
+            job = self.get(job_id)
+            if job.status == "applied":
+                raise RuntimeError("That change is already applied to your source.")
+            job.discarding = True
+            task = job.task
+            if task is not None and not task.done() and self._loop is not None:
+                # This usually runs in a worker thread, and an asyncio task may only be cancelled
+                # from its own loop. Deciding there also closes the gap where the job finishes
+                # between our check and the cancel, which would skip the cleanup.
+                self._loop.call_soon_threadsafe(self._stop_job, job)
+                job.say("Stopping…")
+            else:
+                self._cleanup(job)
+            job.status = "discarded"
+            self._save_jobs()
+            return job
+
+    def _stop_job(self, job: Job) -> None:
+        """On the event loop: cancel a running job (its finally block tidies up once the agent
+        has exited), or tidy up now if it finished in the meantime."""
+        if job.task is not None and not job.task.done():
+            job.task.cancel()
         else:
-            self._cleanup(job)
-        job.status = "discarded"
-        self._save_jobs()
-        return job
+            job.task = asyncio.ensure_future(asyncio.to_thread(self._cleanup, job))  # keep a ref
 
     def _cleanup(self, job: Job) -> None:
         if job.path:

@@ -315,7 +315,7 @@ async def test_rejected_key_benches_provider_until_key_changes(tmp_path, status)
     def handler(req):
         seen.append(req.headers["authorization"])
         if req.headers["authorization"] == "Bearer alpha-test-key":
-            return httpx.Response(status, json={"error": {"message": "bad key"}})
+            return httpx.Response(status, json={"error": {"message": "Invalid API Key"}})
         return httpx.Response(200, json=completion_json("ok"))
 
     providers = fake_providers()
@@ -331,6 +331,30 @@ async def test_rejected_key_benches_provider_until_key_changes(tmp_path, status)
     assert quota.available("alpha", "a-small")
     res = await c.chat("alpha/a-small", [{"role": "user", "content": "x"}])
     assert res.text == "ok" and seen[-1] == "Bearer alpha-new-key"  # client rebuilt
+
+
+async def test_a_403_about_one_model_benches_only_that_model(tmp_path):
+    """OpenRouter-style 403 (moderation, a model you can't use): not the key's fault."""
+    def handler(req):
+        if b"a-big" in req.content:
+            return httpx.Response(403, json={"error": {"message": "Input was flagged by moderation"}})
+        return httpx.Response(200, json=completion_json("ok"))
+
+    c, quota = quota_client(tmp_path, handler)
+    with pytest.raises(AuthError):
+        await c.chat("alpha/a-big", [{"role": "user", "content": "x"}])
+    assert not quota.available("alpha", "a-big") and quota.available("alpha", "a-small")
+    assert (await c.chat("alpha/a-small", [{"role": "user", "content": "x"}])).text == "ok"
+
+
+def test_a_short_block_never_cuts_a_longer_one_short(tmp_path):
+    from nathan.quota import QuotaManager
+
+    q = QuotaManager(fake_providers(), tmp_path / "q.sqlite")
+    q.block("alpha", "a-big", 300, "timeout")
+    q.block("alpha", "a-big", 0.5, "429")  # a parallel lane's quick retry pause
+    until, reason = q.snapshot().blocks[("alpha", "a-big")]
+    assert reason == "timeout" and until - q.clock() > 250
 
 
 async def test_stream_429_blocks_and_records(tmp_path):

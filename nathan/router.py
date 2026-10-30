@@ -94,6 +94,16 @@ def heuristic_route(question: str) -> Route:
     return r
 
 
+async def run_mode(r: Route) -> str:
+    """The run mode for a route. Big multi-part jobs go to the Overlord when a manager is
+    signed in to lead them; otherwise to the free staff's own workflow."""
+    from nathan import managers
+
+    if r.pattern == "plan":
+        return "overlord" if await managers.connected() else "workflow"
+    return {"agent": "autopilot"}.get(r.pattern, r.pattern)
+
+
 async def route(engine, question: str) -> Route:  # engine: nathan.engine.Engine
     # Routing is pure overhead to the person waiting, so the quickest models do it, and if
     # they dawdle the keyword rules decide instantly instead.

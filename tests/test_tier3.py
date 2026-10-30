@@ -186,7 +186,7 @@ async def test_auto_mode_routes_to_plan(make_engine):
 
     engine = make_engine(responder)
     ans = await engine.ask("Research solar power and write a one-page brief")
-    assert ans.mode == "overlord" and "routed: research → overlord" in ans.note  # free staff: no manager
+    assert ans.mode == "workflow" and "routed: research → workflow" in ans.note  # no manager signed in
 
 
 # ---- critique ------------------------------------------------------------------------
@@ -254,3 +254,16 @@ async def test_route_races_routers_so_a_slow_one_does_not_stall(make_engine):
     engine = make_engine(responder)
     r = await asyncio.wait_for(route(engine, "what is 2+2"), timeout=3)
     assert r.pattern == "vote" and r.by == "delta/d-big"
+
+
+async def test_big_jobs_go_to_the_overlord_when_a_manager_is_signed_in(monkeypatch):
+    from nathan import managers
+    from nathan.router import Route, run_mode
+
+    async def claude_only():
+        return [managers.CLAUDE]
+
+    assert await run_mode(Route(pattern="plan")) == "workflow"  # nobody to lead it
+    monkeypatch.setattr(managers, "connected", claude_only)
+    assert await run_mode(Route(pattern="plan")) == "overlord"
+    assert await run_mode(Route(pattern="agent")) == "autopilot"

@@ -47,6 +47,8 @@ Message = dict[str, Any]
 # Kept short: every caller has other models to try, so moving on beats sleeping.
 MAX_RETRY_WAIT_S = 3.0
 NO_RETRY_AFTER_BLOCK_S = 60.0  # how long a 429 without Retry-After benches the model
+FORBIDDEN_BLOCK_S = 600.0  # a 403 about one model (not the key) benches just that model
+BAD_KEY_WORDS = ("api key", "api_key", "apikey", "invalid key", "unauthor", "revoked", "expired")
 
 
 @dataclass(frozen=True)
@@ -356,11 +358,19 @@ class Client:
         if status >= 500:
             return ProviderDown(msg, provider=r.provider, model=r.model)
         if status in (401, 403):
-            if self.quota is not None:
+            body = str(e.body or e.message or "").lower()
+            # 403 also means "this model isn't for you" or "input flagged by moderation":
+            # only a key-shaped complaint condemns every model of the provider
+            bad_key = status == 401 or any(w in body for w in BAD_KEY_WORDS)
+            if self.quota is not None and bad_key:
                 # A rejected key fails for every model of this provider: bench them all,
-                # instead of spending one doomed request per model on every run
-                key = self.provider(r.provider).api_key
+                # instead of spending one doomed request per model on every run. Fingerprint
+                # the key this request carried: one saved meanwhile must not be benched.
+                sent = e.response.request.headers.get("authorization", "")
+                key = sent.removeprefix("Bearer ").strip() or self.provider(r.provider).api_key
                 self.quota.block(r.provider, ACCOUNT, AUTH_BLOCK_S, auth_reason(key))
+            elif not bad_key:
+                self._block(r, FORBIDDEN_BLOCK_S, "403")
             return AuthError(msg, provider=r.provider, model=r.model)
         if status == 404 or "model_not_found" in str(e.body or ""):
             if self.quota is not None:
