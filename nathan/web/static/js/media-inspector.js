@@ -98,7 +98,8 @@ export class MediaInspectorModal {
         onloadedmetadata: loaded, onloadeddata: loaded, onerror: failed,
         onplay: () => { this.paused = false; pause.textContent = "Pause"; },
         onpause: () => { this.paused = true; pause.textContent = "Play"; } });
-      pause.textContent = "Play"; this.paused = true; stage.append(video);
+      // Muted so the browser allows it to start on its own; the controls can unmute.
+      video.muted = true; video.autoplay = true; stage.append(video);
       if (node.streamType === "mp4" || video.canPlayType("application/vnd.apple.mpegurl")) video.src = node.streamUrl;
       else {
         try {

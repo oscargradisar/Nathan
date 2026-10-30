@@ -1,6 +1,7 @@
 """Validated media catalogue and agent actions; media itself loads in the browser."""
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import random
@@ -50,10 +51,14 @@ async def findPublicCameras(place: str) -> dict:
             continue
     if not nodes:
         raise ValueError(f"No supported public cameras found for {place!r}. Try a nearby city.")
-    # Random camera each time, but live video first; still images are only a fallback.
+    # Random camera each time: live video first, then refreshing images; embeds can't be
+    # checked ahead (they're often black), so they come last.
     random.shuffle(nodes)
-    order = {"hls": 0, "mp4": 0, "iframe": 1, "image-poll": 2}
+    order = {"hls": 0, "mp4": 0, "image-poll": 1, "iframe": 2}
     nodes.sort(key=lambda n: order[n["streamType"]])
+    # Camera servers go down (half of Colorado's were unreachable): open one that answers.
+    alive = await _alive(nodes[:16])
+    nodes.sort(key=lambda n: (n["id"] not in alive, order[n["streamType"]]))
     _cameras = nodes
     result = {"url": url, "label": location["label"], "count": len(nodes)}
     globe.focus.pop("cctv", None)
@@ -62,6 +67,22 @@ async def findPublicCameras(place: str) -> dict:
                        media={"visible": True, "id": nodes[0]["id"], "nodes": nodes},
                        v=globe.focus["v"] + 1)
     return result
+
+
+async def _alive(nodes: list[dict]) -> set[str]:
+    """IDs of feeds that answer within a few seconds. Iframe embeds can't be checked."""
+    async def ok(http: httpx.AsyncClient, node: dict) -> bool:
+        if node["streamType"] == "iframe":
+            return False
+        try:
+            async with http.stream("GET", node["streamUrl"]) as r:
+                return r.status_code == 200
+        except httpx.HTTPError:
+            return False
+
+    async with httpx.AsyncClient(timeout=5, headers=globe.UA, follow_redirects=True) as http:
+        results = await asyncio.gather(*(ok(http, n) for n in nodes))
+    return {n["id"] for n, good in zip(nodes, results, strict=True) if good}
 
 
 class GeoMediaNode(BaseModel):

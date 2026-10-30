@@ -15,6 +15,10 @@ def isolate(monkeypatch):
     monkeypatch.delenv("NEXT_PUBLIC_GEOMEDIA_ENDPOINT", raising=False)
     monkeypatch.setattr(globe, "focus", {"lat": 0, "lon": 0, "alt": 2, "layers": [], "v": 0})
 
+    async def all_alive(nodes):  # tests never touch real camera servers
+        return {n["id"] for n in nodes}
+    monkeypatch.setattr(geomedia, "_alive", all_alive)
+
 
 def test_contract_and_geojson():
     node = geomedia.parse_nodes(json.loads(geomedia.FIXTURE.read_text()))[0]
@@ -125,3 +129,22 @@ def test_camera_search_ignores_same_named_streets_far_away():
     assert [r["name"] for r in nearby(rows, colorado)] == ["I-25 Pueblo"]
     pueblo = {"lat": 38.26, "lon": -104.61, "state": ""}
     assert [r["name"] for r in nearby(rows, pueblo)] == ["I-25 Pueblo"]
+
+
+async def test_dead_camera_servers_are_skipped(monkeypatch):
+    async def locate(place):
+        return {"lat": 38.26, "lon": -104.61, "label": "Pueblo", "state": "Colorado"}
+
+    async def lookup(location):
+        return [{"id": f"cam-{i}", "name": f"Camera {i}", "lat": 38.26, "lng": -104.61, "camera_code": i,
+                 "feed_url": f"https://streamer{i}.example.test/playlist.m3u8", "feed_type": "m3u8"}
+                for i in range(5)]
+
+    async def only_cam_3(nodes):
+        return {"cam-3"}
+
+    monkeypatch.setattr(globe, "geocode", locate)
+    monkeypatch.setattr("nathan.opencctv.cameras", lookup)
+    monkeypatch.setattr(geomedia, "_alive", only_cam_3)
+    await geomedia.findPublicCameras("Pueblo")
+    assert globe.focus["media"]["id"] == "cam-3"
