@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import time
 
 from playwright.async_api import async_playwright
@@ -10,8 +11,35 @@ _lock = asyncio.Lock()
 _cache: dict[str, tuple[float, list[dict]]] = {}
 
 
-async def cameras(place: str) -> list[dict]:
-    query = place.split(",")[0].strip()
+def _km(a_lat: float, a_lon: float, b_lat: float, b_lon: float) -> float:
+    dy = math.radians(b_lat - a_lat)
+    dx = math.radians(b_lon - a_lon) * math.cos(math.radians((a_lat + b_lat) / 2))
+    return 6371 * math.hypot(dx, dy)
+
+
+def nearby(rows: list[dict], location: dict) -> list[dict]:
+    """Text search also matches street names ("Colorado St" in Texas): keep only cameras in the
+    place's state or within 150 km of it, nearest first."""
+    state = (location.get("state") or "").casefold()
+    lat, lon = location["lat"], location["lon"]
+    rows = [r for r in rows if isinstance(r.get("lat"), (int, float)) and isinstance(r.get("lng"), (int, float))
+            and ((state and (r.get("state") or "").casefold() == state) or _km(lat, lon, r["lat"], r["lng"]) < 150)]
+    return sorted(rows, key=lambda r: _km(lat, lon, r["lat"], r["lng"]))
+
+
+async def cameras(location: dict) -> list[dict]:
+    """Cameras near a geocoded place: search its city, then its state if the city has none."""
+    terms = [t for t in (location.get("city"), location.get("state"),
+                         location.get("label", "").split(",")[0].strip()) if t]
+    for term in dict.fromkeys(terms):
+        rows = nearby(await _search(term), location)
+        if rows:
+            return rows
+    return []
+
+
+async def _search(place: str) -> list[dict]:
+    query = place.strip()
     async with _lock:
         hit = _cache.get(query.casefold())
         if hit and time.monotonic() - hit[0] < 300:

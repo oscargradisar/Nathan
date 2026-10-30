@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import random
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlencode, urlsplit
@@ -30,7 +31,7 @@ async def findPublicCameras(place: str) -> dict:
     url = "https://opencctv.org/?" + urlencode({
         "lat": location["lat"], "lng": location["lon"], "zoom": 12,
     })
-    rows = await cameras(place)
+    rows = await cameras(location)
     nodes = []
     types = {"image": "image-poll", "m3u8": "hls", "mp4": "mp4", "iframe": "iframe"}
     for row in rows:
@@ -49,8 +50,10 @@ async def findPublicCameras(place: str) -> dict:
             continue
     if not nodes:
         raise ValueError(f"No supported public cameras found for {place!r}. Try a nearby city.")
-    # Prefer an image for immediate, silent playback; stream controls remain available.
-    nodes.sort(key=lambda n: n["streamType"] != "image-poll")
+    # Random camera each time, but live video first; still images are only a fallback.
+    random.shuffle(nodes)
+    order = {"hls": 0, "mp4": 0, "iframe": 1, "image-poll": 2}
+    nodes.sort(key=lambda n: order[n["streamType"]])
     _cameras = nodes
     result = {"url": url, "label": location["label"], "count": len(nodes)}
     globe.focus.pop("cctv", None)

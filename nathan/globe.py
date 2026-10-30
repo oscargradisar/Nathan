@@ -41,12 +41,30 @@ async def _get(key: str, ttl: float, url: str, **kw) -> Any:
 
 
 async def geocode(place: str) -> dict | None:
-    rows = await _get(f"geo:{place.lower()}", 86400, "https://nominatim.openstreetmap.org/search",
-                      params={"q": place, "format": "json", "limit": 1})
-    if not rows:
+    """Place name -> coordinates plus city/state. Nominatim first, Photon as backup."""
+    try:
+        rows = await _get(f"geo:{place.lower()}", 86400, "https://nominatim.openstreetmap.org/search",
+                          params={"q": place, "format": "json", "limit": 1, "addressdetails": 1})
+    except httpx.HTTPError:
+        rows = []
+    if rows:
+        r, a = rows[0], rows[0].get("address", {})
+        return {"lat": float(r["lat"]), "lon": float(r["lon"]), "label": r.get("display_name", place)[:80],
+                "city": a.get("city") or a.get("town") or a.get("village") or "", "state": a.get("state", "")}
+    _cache.pop(f"geo:{place.lower()}", None)  # don't remember a miss for a day
+    try:  # Photon (komoot) is also free, keyless and more forgiving of loose text
+        j = await _get(f"photon:{place.lower()}", 86400, "https://photon.komoot.io/api/",
+                       params={"q": place, "limit": 1})
+    except httpx.HTTPError:
         return None
-    r = rows[0]
-    return {"lat": float(r["lat"]), "lon": float(r["lon"]), "label": r.get("display_name", place)[:80]}
+    if not j.get("features"):
+        return None
+    f = j["features"][0]
+    lon, lat = f["geometry"]["coordinates"]
+    pr = f.get("properties", {})
+    city = pr.get("city") or (pr.get("name", "") if pr.get("type") == "city" else "")
+    label = ", ".join(x for x in (pr.get("name"), pr.get("state"), pr.get("country")) if x) or place
+    return {"lat": float(lat), "lon": float(lon), "label": label[:80], "city": city, "state": pr.get("state", "")}
 
 
 async def planes(lat: float, lon: float, span: float = 4.0) -> list[dict]:

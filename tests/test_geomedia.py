@@ -113,3 +113,15 @@ def test_camera_lookup_endpoint(make_engine, monkeypatch):
     assert client.post("/api/geomedia/cameras", json={"place": "Paris"}).status_code == 403
     assert client.post("/api/geomedia/cameras", json={"place": "Paris"},
                        headers={"x-nathan": "1"}).status_code == 400
+
+
+def test_camera_search_ignores_same_named_streets_far_away():
+    from nathan.opencctv import nearby
+
+    colorado = {"lat": 38.7, "lon": -105.6, "state": "Colorado"}
+    rows = [{"name": "Colorado St", "state": "Texas", "lat": 30.27, "lng": -97.74},
+            {"name": "I-25 Pueblo", "state": "Colorado", "lat": 38.26, "lng": -104.61},
+            {"name": "Raton Pass", "state": "New Mexico", "lat": 36.9, "lng": -104.44}]
+    assert [r["name"] for r in nearby(rows, colorado)] == ["I-25 Pueblo"]
+    pueblo = {"lat": 38.26, "lon": -104.61, "state": ""}
+    assert [r["name"] for r in nearby(rows, pueblo)] == ["I-25 Pueblo"]
