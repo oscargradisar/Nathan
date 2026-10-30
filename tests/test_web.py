@@ -1,6 +1,7 @@
 """Tier 5 web app: runs, SSE lanes, manual lane, quota, connect wizard — scripted models."""
 
 import json
+import time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -210,3 +211,27 @@ def test_save_and_exit_flags_the_app(web):
         assert client.app.state.quit is False
         assert client.post("/api/quit", json={}, headers=H).json() == {"quitting": True}
         assert client.app.state.quit is True
+
+
+def test_stop_ends_a_run_in_progress(web):
+    import asyncio
+
+    async def thinking():
+        await asyncio.sleep(30)  # a model that's still thinking
+        return "late answer"
+
+    def slow(*a, **k):
+        return thinking()
+
+    client, _ = web(slow)
+    with client:
+        run_id = client.post("/api/runs", json={"prompt": "q", "mode": "single"}, headers=H).json()["id"]
+        assert client.post(f"/api/runs/{run_id}/stop", headers=H).json() == {"stopped": True}
+        for _ in range(100):
+            if client.app.state.runs.get(run_id).finished:
+                break
+            time.sleep(0.02)
+        types = [e["type"] for e in client.app.state.runs.get(run_id).events]
+        assert types[-2:] == ["stopped", "done"]
+        assert client.post(f"/api/runs/{run_id}/stop", headers=H).json() == {"stopped": False}
+        assert client.post("/api/runs/nope/stop", headers=H).status_code == 404

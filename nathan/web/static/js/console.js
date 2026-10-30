@@ -70,6 +70,10 @@ export function initConsole(staffCount) {
   }
   $("cmd").addEventListener("submit", (e) => { e.preventDefault(); start(); });
   initAttachments();
+  $("go").addEventListener("click", (e) => { if (document.body.classList.contains("busy")) { e.preventDefault(); stopRun(); } });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && document.body.classList.contains("busy") && !$("view-console").hidden) stopRun();
+  });
   $("prompt").addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); start(); }
   });
@@ -110,6 +114,13 @@ export function ask(text, as) {
 }
 
 // ---- running ----------------------------------------------------------------------------
+async function stopRun() {
+  if (!run) return;
+  $("go").disabled = true; $("core-small").textContent = "stopping…";
+  try { await api(`/api/runs/${run.id}/stop`, {}); } catch (e) { toast(e.message); }
+  finally { $("go").disabled = false; }
+}
+
 // ---- images: drop, paste or 📎 ----------------------------------------------------------
 const MAX_IMAGES = 4, MAX_BYTES = 8 * 1024 * 1024;
 let images = [];  // data: URLs
@@ -156,7 +167,7 @@ function initAttachments() {
 
 async function start() {
   const prompt = $("prompt").value.trim();
-  if ((!prompt && !images.length) || $("go").disabled) return;
+  if ((!prompt && !images.length) || document.body.classList.contains("busy")) return;
   stopFollow && stopFollow(); stopSpeech();
   reset();
   busy(true, "ROUTING", mode === "auto" ? "deciding how to handle this" : (MODES.find((m) => m.id === mode)?.label || { code: "programming", review: "performance review" }[mode] || mode).toLowerCase());
@@ -193,7 +204,9 @@ function reset() {
 function busy(on, big = "", small = "") {
   document.body.classList.toggle("busy", on);
   document.body.classList.toggle("idle", !on);
-  $("go").disabled = on;
+  $("go").textContent = on ? "STOP" : "RUN";  // while working, the same button stops the team
+  $("go").classList.toggle("stop", on);
+  $("go").title = on ? "Stop this task (Esc)" : "Run (Enter)";
   $("core-big").textContent = on ? big : "STANDING BY";
   $("core-small").textContent = on ? small : "ask anything";
 }
@@ -304,6 +317,7 @@ function handle(ev) {
       answer(ev); break;
     }
     case "error": play("error"); say_(errorLine(plain(ev.message))); toast(plain(ev.message), 5000); break;
+    case "stopped": play("fail"); say_("Stopped. Nothing else will be done on that one."); toast("Stopped."); break;
     case "done": busy(false); onFinish(); break;
   }
   paintRing();

@@ -516,6 +516,12 @@ def create_app(engine, hub: Hub | None = None, self_check: bool = False) -> Fast
             r["working"] = r["ref"] in busy
         return {"staff": rows}
 
+    @app.post("/api/runs/{run_id}/stop")
+    async def stop_run(run_id: str) -> dict:
+        if runs.get(run_id) is None:
+            raise HTTPException(404, "no such run")
+        return {"stopped": runs.stop(run_id)}
+
     @app.post("/api/runs/{run_id}/prayer")
     async def prayer_answer(run_id: str, body: ManualIn) -> dict:
         run = runs.get(run_id)

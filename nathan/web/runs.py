@@ -91,6 +91,14 @@ class RunManager:
     def get(self, run_id: str) -> Run | None:
         return self.runs.get(run_id)
 
+    def stop(self, run_id: str) -> bool:
+        """Stop a run in progress. Returns False if it already finished."""
+        run = self.runs.get(run_id)
+        if run is None or run.finished or run._task is None:
+            return False
+        run._task.cancel()
+        return True
+
     def start(self, prompt: str, mode: str = "vote", models: list[str] | None = None,
               n: int = 5, images: list | None = None, job: dict | None = None) -> Run:
         run = Run(uuid.uuid4().hex[:10], prompt, mode)
@@ -167,6 +175,8 @@ class RunManager:
                 run.final = ans.text
                 run.emit({"type": "final", "text": ans.text, "judge": ans.judge,
                           "models": ans.models, "note": ans.note, "mode": ans.mode})
+        except asyncio.CancelledError:  # Stop pressed: lanes awaiting under this task are cancelled too
+            run.emit({"type": "stopped"})
         except NathanError as e:
             run.emit({"type": "error", "message": f"{type(e).__name__}: {e}"})
         except Exception as e:  # noqa: BLE001 - surface unexpected errors in the UI too

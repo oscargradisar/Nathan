@@ -392,3 +392,4 @@ figure { margin: 0; }
 .job-body { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
 .job-history details { border-top: 1px solid var(--line); padding: 6px 0; }
 .job-history summary { cursor: pointer; }
+.go.stop { background: linear-gradient(180deg, #ff8a9e, var(--bad)); color: #1a0006; }
