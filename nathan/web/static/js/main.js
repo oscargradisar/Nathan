@@ -8,7 +8,7 @@ import { setVoice, voiceOn } from "./voice.js";
 import { lightningOn, setLightning, strike } from "./fx.js";
 import { initMorphy } from "./morphy.js";
 import { boot as bootScreen } from "./boot.js";
-import { openWorld } from "./world.js";
+import { openWorld, pauseWorld } from "./world.js";
 import { openEvolve } from "./evolve.js";
 import { openJobs, paintPicker } from "./jobs.js";
 
@@ -35,7 +35,7 @@ function show() {
   if (name === "staff") refreshStaff();
   if (name === "accounts") { renderManagers(); renderAccounts(); }
   if (name === "code") { renderProjects(); codeBoss(); }
-  if (name === "world") openWorld();
+  if (name === "world") openWorld(); else pauseWorld();
   if (name === "history") { renderPrayers(); renderHistory((q) => ask(q)); }
   if (name === "systems") refreshStatus().then(() => renderSystems(status));
   if (name === "evolve") openEvolve();
@@ -106,9 +106,16 @@ async function boot() {
   }
   show();
 
-  // Live chips and staff; this polling also tells the desktop app the window is still open.
+  // Live chips and staff. The status poll always runs: it also tells the desktop app the
+  // window is still open. The rest only runs when someone could see the result.
   followWorldRequest();
-  setInterval(() => { refreshStatus().catch(() => null); refreshStaff().catch(() => null); followWorldRequest(); }, 5000);
+  setInterval(() => {
+    refreshStatus().catch(() => null);
+    if (document.hidden) return;
+    if (!$("view-staff").hidden || !$("view-console").hidden) refreshStaff().catch(() => null);
+    if ($("view-world").hidden) followWorldRequest();
+    else worldVersion = null;  // the World view follows focus itself; start fresh when we leave it
+  }, 5000);
 
   document.addEventListener("keydown", (e) => {
     const typing = /INPUT|TEXTAREA/.test(document.activeElement?.tagName || "");

@@ -29,6 +29,33 @@ from nathan.patterns.vote import Candidate, judge_messages
 
 Event = dict[str, Any]
 SWARM_MAX = 12  # swarm mode: at most this many models answer at once
+CHUNK_CHARS = 200  # streamed text is sent in pieces of about this size...
+CHUNK_S = 0.05  # ...or this often, whichever comes first
+HEARTBEAT_S = 15.0  # an idle SSE stream sends a comment this often so it doesn't look dead
+
+
+class Chunker:
+    """Groups streamed tokens into fewer, bigger events.
+
+    Why: one event per token means tens of thousands of stored dicts on a swarm run and a
+    browser repaint per token. ~50 ms batches look just as live to a person.
+    """
+
+    def __init__(self, emit, event: Event) -> None:
+        self.emit, self.event = emit, event
+        self.parts: list[str] = []
+        self.size, self.last = 0, time.monotonic()
+
+    def add(self, piece: str) -> None:
+        self.parts.append(piece)
+        self.size += len(piece)
+        if self.size >= CHUNK_CHARS or time.monotonic() - self.last >= CHUNK_S:
+            self.flush()
+
+    def flush(self) -> None:
+        if self.parts:
+            self.emit({**self.event, "text": "".join(self.parts)})
+        self.parts, self.size, self.last = [], 0, time.monotonic()
 
 
 def diagnostics_report(results: list[dict], listed: dict[str, list[str]]) -> str:
@@ -66,15 +93,21 @@ class Run:
         for q in list(self._subscribers):
             q.put_nowait(event)
 
-    async def subscribe(self, since: int = 0):
-        """Replay events from index `since`, then follow live ones until "done"."""
+    async def subscribe(self, since: int = 0, heartbeat: float | None = None):
+        """Replay events from index `since`, then follow live ones until "done".
+
+        With `heartbeat`, yields None after that many idle seconds (the caller sends a ping)."""
         q: asyncio.Queue = asyncio.Queue()
-        for e in self.events[since:]:
+        for e in self.events[max(0, since):]:
             q.put_nowait(e)
         self._subscribers.append(q)
         try:
             while True:
-                event = await q.get()
+                try:
+                    event = await asyncio.wait_for(q.get(), heartbeat)
+                except TimeoutError:
+                    yield None
+                    continue
                 yield event
                 if event["type"] == "done" and q.empty():
                     break
@@ -104,8 +137,10 @@ class RunManager:
         run = Run(uuid.uuid4().hex[:10], prompt, mode)
         run.job = job
         self.runs[run.id] = run
-        if len(self.runs) > self.keep:
-            self.runs.pop(next(iter(self.runs)))
+        if len(self.runs) > self.keep:  # forget the oldest finished run; never a live one
+            old = next((k for k, r in self.runs.items() if r.finished), None)
+            if old:
+                self.runs.pop(old)
         run._task = asyncio.create_task(self._execute(run, models, n, images or [], job))
         return run
 
@@ -209,10 +244,12 @@ class RunManager:
             while current is not None:
                 start = time.perf_counter()
                 parts: list[str] = []
+                out = Chunker(run.emit, {"type": "delta", "lane": i})
                 try:
                     async for piece in self.engine.client.stream(current, messages):
                         parts.append(piece)
-                        run.emit({"type": "delta", "lane": i, "text": piece})
+                        out.add(piece)
+                    out.flush()
                     text = strip_thinking("".join(parts))
                     if text:
                         ms = (time.perf_counter() - start) * 1000
@@ -249,10 +286,12 @@ class RunManager:
         for ref in judges:
             run.emit({"type": "judge_start", "model": ref})
             parts: list[str] = []
+            out = Chunker(run.emit, {"type": "judge_delta"})
             try:
                 async for piece in self.engine.client.stream(ref, messages):
                     parts.append(piece)
-                    run.emit({"type": "judge_delta", "text": piece})
+                    out.add(piece)
+                out.flush()
             except RECOVERABLE as e:
                 run.emit({"type": "judge_failed", "model": ref, "reason": type(e).__name__})
                 continue
@@ -271,24 +310,35 @@ class RunManager:
         run.candidates.append(cand)
         run.emit({"type": "manual_added", "model": cand.ref, "text": cand.text})
 
-    async def answer_prayer(self, run: Run, reply: str) -> None:
+    def answer_prayer(self, run: Run, reply: str) -> int:
+        """Start revising with Claude's reply. Returns the event index to follow from."""
         from nathan.workflow import answer_prayer
 
-        run.finished = False
-        try:
+        async def work() -> None:
             run.final = await answer_prayer(self.engine, run.workflow, reply, run.emit)
-        except NathanError as e:
-            run.emit({"type": "error", "message": str(e)})
-        finally:
-            run.finished = True
-            run.emit({"type": "done"})
 
-    async def rejudge(self, run: Run) -> None:
+        return self._follow_up(run, work())
+
+    def rejudge(self, run: Run) -> int:
+        """Start judging again (e.g. after a pasted answer). Returns the index to follow from."""
+        return self._follow_up(run, self.judge(run))
+
+    def _follow_up(self, run: Run, work) -> int:
+        """More work on a finished run. It becomes run._task, so Stop cancels it and the
+        task has a reference (asyncio may garbage-collect unreferenced tasks mid-run)."""
+        since = len(run.events)
         run.finished = False
-        try:
-            await self.judge(run)
-        except NathanError as e:
-            run.emit({"type": "error", "message": str(e)})
-        finally:
-            run.finished = True
-            run.emit({"type": "done"})
+
+        async def go() -> None:
+            try:
+                await work
+            except asyncio.CancelledError:
+                run.emit({"type": "stopped"})
+            except NathanError as e:
+                run.emit({"type": "error", "message": str(e)})
+            finally:
+                run.finished = True
+                run.emit({"type": "done"})
+
+        run._task = asyncio.create_task(go())
+        return since

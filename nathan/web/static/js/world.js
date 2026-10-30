@@ -38,15 +38,23 @@ export async function openWorld() {
       .ringMaxRadius(4).ringPropagationSpeed(2).ringRepeatPeriod(1400)
       .width(box.clientWidth).height(box.clientHeight);
     world.controls().autoRotate = true; world.controls().autoRotateSpeed = 0.35;
-    addEventListener("resize", () => world && world.width($("globe").clientWidth).height($("globe").clientHeight));
+    addEventListener("resize", () => !$("view-world").hidden && world.width($("globe").clientWidth).height($("globe").clientHeight));
     media = new GeoMediaLayer(world, drawCount);
     buildControls();
-    setInterval(followFocus, 2500);
-    setInterval(() => on.has("iss") && refresh("iss"), 8000);
+    // Both timers idle while the World view is hidden: no network or redraws in the background.
+    setInterval(() => { if (!hidden()) followFocus(); }, 2500);
+    setInterval(() => { if (!hidden() && on.has("iss")) refresh("iss"); }, 8000);
+  } else {
+    const box = $("globe");  // the window may have been resized while we were away
+    world.width(box.clientWidth).height(box.clientHeight).resumeAnimation();
   }
   for (const l of on) refresh(l);
   followFocus();
 }
+
+// Leaving the World view: stop the 3D render loop, which would otherwise spin the GPU forever.
+export function pauseWorld() { world?.pauseAnimation(); }
+const hidden = () => document.hidden || $("view-world").hidden;
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 function tip(d) {
