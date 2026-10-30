@@ -2,6 +2,15 @@
 
 ## Autopilot log
 
+**2026-10-29 (evening): Nathan 1.6: Claude is the Overlord, Evolve takes ideas, a faster core**
+- **Overlord mode** (and Auto's choice for big jobs whenever a manager is signed in): Claude, on the owner's plan through Claude Code, gets a staff sheet (each model's strengths, Elo and speed), plans the job, hand-picks a worker per part, writes the answer and reviews it. ChatGPT leads if Claude is away; the free planner, writer and judges cover any step a manager fails. Parts tagged `tools` run through the agent (live pages, Python, workspace files), with a plain worker as the fallback. **Verified live:** a note-taking-apps comparison, planned by Claude in 4 parts, with workers reading the live product pages, then written and reviewed by Claude.
+- **Claude is the default lead manager**, and Evolve always builds with Claude when it is signed in.
+- **Evolve → Ask Claude for ideas:** Claude reads the source read-only and proposes ranked improvements; one click builds one, and Autopilot works through them. Apply and Discard are safe against double clicks and merge conflicts (`git merge --abort`), and jobs survive a restart.
+- **Speed:** SQLite in WAL mode; picking models takes a handful of queries instead of ~250; parts start as soon as their own inputs are ready (no wave barrier); the router races 3 models; votes stop waiting for stragglers once a quorum answers; premium researchers get 45s of grace instead of 3 minutes; streamed text is batched (far fewer events and repaints).
+- **Quota truth:** every attempt is counted (failed, retried, cancelled); a 429 blocks the model before any wait; a bad key benches its provider until the key changes; a short block never cuts a longer one short.
+- **Sturdier:** manager CLIs are killed (whole process tree) when a run is stopped; tool calls stop after 120s; the browser resumes a dropped live stream where it left off.
+- Built by four parallel builders from a 4-area audit (~50 findings), then a 3-lens review whose 12 confirmed findings were fixed. 288 Python tests + 12 console JS tests, all offline.
+
 **2026-10-29 (afternoon): Nathan 1.1: research, premium managers, programming**
 - **Slow bots fixed:** picks now use a *pick score* (Elo − 3 per second of average answer time beyond 10s − 400 for no-shows). Gemma 26B (36.6s a job, top Elo) was everyone's first pick. The systems check feeds real speeds in.
 - **Mistral removed** (its "free" plan asks for a card).
