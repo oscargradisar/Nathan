@@ -214,3 +214,43 @@ async def test_critique_skips_revision_when_clean():
     r = await critique(c, MSG, drafters=["alpha/a-big"], critics=["beta/b-big"])
     assert r.final == "draft"
     assert len(c.calls) == 2
+
+
+# ---- router: shortcuts and racing ----------------------------------------------------
+
+@pytest.mark.parametrize("q", [
+    "tell me about the French revolution and why it started in 1789",
+    "show me how list comprehensions work in Python",
+    "explain variable assignment vs equality in Python",
+    "write a quiz about WW2 for my students",
+])
+def test_ordinary_questions_are_not_agent_work(q):
+    assert heuristic_route(q).pattern != "agent"
+
+
+@pytest.mark.parametrize("q", [
+    "open Rhythia", "please launch Terraria", "play some lofi music",
+    "message Sam on discord saying hi", "email my teacher about the deadline",
+])
+def test_explicit_commands_still_go_to_agent(q):
+    assert heuristic_route(q).pattern == "agent"
+
+
+async def test_shortcut_only_catches_school_work(make_engine):
+    engine = make_engine(lambda r, m, **k: '{"task_type": "code", "pattern": "single"}')
+    for q in ("what's due on canvas this week", "help with my homework",
+              "pull up my pre-lab", "check my history assignment", "when is my quiz"):
+        assert (await route(engine, q)).by == "shortcut", q
+    for q in ("explain variable assignment in Python", "write a quiz about WW2"):
+        assert (await route(engine, q)).by != "shortcut", q
+
+
+async def test_route_races_routers_so_a_slow_one_does_not_stall(make_engine):
+    async def responder(ref, messages, **kw):
+        if ref == "alpha/a-small":
+            await asyncio.sleep(30)  # the first router hangs
+        return '{"task_type": "math", "pattern": "vote"}'
+
+    engine = make_engine(responder)
+    r = await asyncio.wait_for(route(engine, "what is 2+2"), timeout=3)
+    assert r.pattern == "vote" and r.by == "delta/d-big"

@@ -16,10 +16,12 @@ different wall-clock times, and a rolling window is the safe approximation.
 
 from __future__ import annotations
 
+import hashlib
 import re
 import sqlite3
 import time
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from nathan.config import Limits, Provider, data_dir
@@ -27,11 +29,14 @@ from nathan.errors import QuotaExceeded
 
 MINUTE = 60.0
 DAY = 86400.0
+KEEP_CALLS_S = 2 * DAY  # older call rows can't affect any window, so they're deleted
 ACCOUNT = "*"  # model name used for account-wide rows
+AUTH_BLOCK_S = 3600.0  # a rejected key (401/403) benches its whole provider this long
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS calls (provider TEXT, model TEXT, ts REAL, tokens INTEGER);
 CREATE INDEX IF NOT EXISTS calls_idx ON calls (provider, model, ts);
+CREATE INDEX IF NOT EXISTS calls_ts ON calls (ts);
 CREATE TABLE IF NOT EXISTS blocks (provider TEXT, model TEXT, until REAL, reason TEXT,
                                    PRIMARY KEY (provider, model));
 CREATE TABLE IF NOT EXISTS live (provider TEXT, model TEXT, name TEXT, value REAL, updated REAL,
@@ -57,14 +62,61 @@ def parse_duration(value: str) -> float | None:
     return h * 3600 + mins * 60 + s + ms / 1000
 
 
+def auth_reason(api_key: str | None) -> str:
+    """Block reason for a rejected key. It carries a short fingerprint of that key (never
+    the key itself), so the block stops applying as soon as the owner saves a new key."""
+    digest = hashlib.sha256((api_key or "").encode()).hexdigest()[:8]
+    return f"auth {digest}"
+
+
+def open_db(path: Path | str) -> sqlite3.Connection:
+    """Open a SQLite file tuned for many small writes from async code.
+
+    WAL (write-ahead log) lets the web app read while another write is in progress, and
+    synchronous=NORMAL skips the disk flush on every commit. Each write drops from ~5 ms
+    to well under 1 ms, which matters because these writes run on the event loop. The
+    worst a power cut can do is lose the last few counters, never corrupt the file.
+    """
+    db = sqlite3.connect(str(path), check_same_thread=False)
+    db.execute("PRAGMA journal_mode=WAL")
+    db.execute("PRAGMA synchronous=NORMAL")
+    return db
+
+
+@dataclass
+class Snapshot:
+    """Everything why_not/remaining_today need, read in four queries.
+
+    Picking models checks ~30 of them at once; asking SQLite per model meant ~250 queries.
+    One snapshot answers all of them from memory.
+    """
+
+    now: float
+    blocks: dict[tuple[str, str], tuple[float, str]] = field(default_factory=dict)
+    gone: set[tuple[str, str]] = field(default_factory=set)
+    live: dict[tuple[str, str, str], float] = field(default_factory=dict)
+    # (provider, model) -> (requests last minute, requests last day, tokens last day)
+    usage: dict[tuple[str, str], tuple[int, int, int]] = field(default_factory=dict)
+
+    def used(self, provider: str, model: str | None) -> tuple[int, int, int]:
+        """(requests/min, requests/day, tokens/day) for one model, or the whole provider."""
+        if model is not None:
+            return self.usage.get((provider, model), (0, 0, 0))
+        rows = [u for (p, _), u in self.usage.items() if p == provider]
+        return (sum(r[0] for r in rows), sum(r[1] for r in rows), sum(r[2] for r in rows))
+
+
 class QuotaManager:
     def __init__(self, providers: dict[str, Provider], db_path: Path | str | None = None,
                  clock: Callable[[], float] = time.time) -> None:
         self.providers = providers
         self.clock = clock
         path = db_path if db_path is not None else data_dir() / "quota.sqlite"
-        self.db = sqlite3.connect(str(path), check_same_thread=False)
+        self.db = open_db(path)
         self.db.executescript(SCHEMA)
+        # One row per request piles up forever otherwise, and every query gets slower
+        self.db.execute("DELETE FROM calls WHERE ts < ?", (self.clock() - KEEP_CALLS_S,))
+        self.db.commit()
 
     # ---- limits ------------------------------------------------------------------------
 
@@ -75,58 +127,72 @@ class QuotaManager:
         spec = p.models.get(model)
         return (spec.limits if spec else Limits()), p.account_limits
 
-    def _usage(self, provider: str, model: str | None, window: float) -> tuple[int, int]:
-        since = self.clock() - window
-        if model is None:
-            row = self.db.execute(
-                "SELECT COUNT(*), COALESCE(SUM(tokens),0) FROM calls WHERE provider=? AND ts>?",
-                (provider, since)).fetchone()
-        else:
-            row = self.db.execute(
-                "SELECT COUNT(*), COALESCE(SUM(tokens),0) FROM calls "
-                "WHERE provider=? AND model=? AND ts>?", (provider, model, since)).fetchone()
-        return int(row[0]), int(row[1])
-
-    def why_not(self, provider: str, model: str) -> str | None:
-        """Return a reason this model can't be used right now, or None if it can."""
+    def snapshot(self, provider: str | None = None) -> Snapshot:
+        """Load blocks, gone models, live header values and usage counts in one go.
+        With `provider`, only that provider's rows are read (cheaper for a single check)."""
         now = self.clock()
-        if self.is_gone(provider, model):
+        only, args = (" AND provider = ?", (provider,)) if provider else ("", ())
+        snap = Snapshot(now)
+        for p, m, until, reason in self.db.execute(
+                "SELECT provider, model, until, reason FROM blocks WHERE until > ?" + only,
+                (now, *args)):
+            snap.blocks[(p, m)] = (until, reason)
+        snap.gone = {(p, m) for p, m in self.db.execute(
+            "SELECT provider, model FROM gone WHERE 1" + only, args)}
+        for p, m, name, value in self.db.execute(
+                "SELECT provider, model, name, value FROM live WHERE 1" + only, args):
+            snap.live[(p, m, name)] = value
+        for p, m, day_reqs, day_toks, minute_reqs in self.db.execute(
+                "SELECT provider, model, COUNT(*), COALESCE(SUM(tokens), 0), SUM(ts > ?) "
+                "FROM calls WHERE ts > ?" + only + " GROUP BY provider, model",
+                (now - MINUTE, now - DAY, *args)):
+            snap.usage[(p, m)] = (int(minute_reqs or 0), int(day_reqs), int(day_toks))
+        return snap
+
+    def _active_block(self, snap: Snapshot, provider: str, model: str) -> tuple[float, str] | None:
+        block = snap.blocks.get((provider, model))
+        if block is None:
+            return None
+        reason = block[1]
+        p = self.providers.get(provider)
+        if reason.startswith("auth ") and p is not None and reason != auth_reason(p.api_key):
+            return None  # the key that was rejected has since been replaced
+        return block
+
+    def why_not(self, provider: str, model: str, snap: Snapshot | None = None) -> str | None:
+        """Return a reason this model can't be used right now, or None if it can."""
+        snap = snap or self.snapshot(provider)
+        if (provider, model) in snap.gone:
             return "model gone"
         for m in (model, ACCOUNT):
-            row = self.db.execute("SELECT until, reason FROM blocks WHERE provider=? AND model=?",
-                                  (provider, m)).fetchone()
-            if row and row[0] > now:
-                return f"blocked {row[0] - now:.0f}s more ({row[1]})"
+            block = self._active_block(snap, provider, m)
+            if block:
+                return f"blocked {block[0] - snap.now:.0f}s more ({block[1]})"
         model_lim, acct_lim = self._limits(provider, model)
         for lim, m in ((model_lim, model), (acct_lim, None)):
             scope = "account" if m is None else "model"
-            if lim.rpm is not None and self._usage(provider, m, MINUTE)[0] >= lim.rpm:
+            per_min, reqs, toks = snap.used(provider, m)
+            if lim.rpm is not None and per_min >= lim.rpm:
                 return f"{scope} requests/min used up"
-            if lim.rpd is not None or lim.tpd is not None:
-                reqs, toks = self._usage(provider, m, DAY)
-                if lim.rpd is not None and reqs >= lim.rpd:
-                    return f"{scope} requests/day used up"
-                if lim.tpd is not None and toks >= lim.tpd:
-                    return f"{scope} tokens/day used up"
+            if lim.rpd is not None and reqs >= lim.rpd:
+                return f"{scope} requests/day used up"
+            if lim.tpd is not None and toks >= lim.tpd:
+                return f"{scope} tokens/day used up"
         return None
 
-    def available(self, provider: str, model: str) -> bool:
-        return self.why_not(provider, model) is None
+    def available(self, provider: str, model: str, snap: Snapshot | None = None) -> bool:
+        return self.why_not(provider, model, snap) is None
 
     def check(self, provider: str, model: str) -> None:
-        reason = self.why_not(provider, model)
+        snap = self.snapshot(provider)
+        reason = self.why_not(provider, model, snap)
         if reason:
             raise QuotaExceeded(f"{provider}/{model}: {reason}", provider=provider, model=model,
-                                retry_after=self._block_left(provider, model))
+                                retry_after=self._block_left(provider, model, snap))
 
-    def _block_left(self, provider: str, model: str) -> float | None:
-        row = self.db.execute(
-            "SELECT MAX(until) FROM blocks WHERE provider=? AND model IN (?, ?)",
-            (provider, model, ACCOUNT)).fetchone()
-        if row and row[0]:
-            left = row[0] - self.clock()
-            return left if left > 0 else None
-        return None
+    def _block_left(self, provider: str, model: str, snap: Snapshot) -> float | None:
+        untils = [b[0] for m in (model, ACCOUNT) if (b := self._active_block(snap, provider, m))]
+        return max(untils) - snap.now if untils else None
 
     # ---- recording ---------------------------------------------------------------------
 
@@ -186,16 +252,18 @@ class QuotaManager:
                               (provider, model, name)).fetchone()
         return row[0] if row else None
 
-    def remaining_today(self, provider: str, model: str) -> int | None:
+    def remaining_today(self, provider: str, model: str,
+                        snap: Snapshot | None = None) -> int | None:
         """Best guess of requests left in the next 24h for this model (None = unknown/unlimited)."""
+        snap = snap or self.snapshot(provider)
         model_lim, acct_lim = self._limits(provider, model)
         guesses: list[float] = []
         if model_lim.rpd is not None:
-            guesses.append(model_lim.rpd - self._usage(provider, model, DAY)[0])
+            guesses.append(model_lim.rpd - snap.used(provider, model)[1])
         if acct_lim.rpd is not None:
-            guesses.append(acct_lim.rpd - self._usage(provider, None, DAY)[0])
+            guesses.append(acct_lim.rpd - snap.used(provider, None)[1])
         for name in ("remaining-requests-day", "remaining-requests"):
-            v = self.live_value(provider, model, name)
+            v = snap.live.get((provider, model, name))
             if v is not None:
                 guesses.append(v)
                 break
@@ -203,16 +271,17 @@ class QuotaManager:
 
     def report(self) -> list[dict]:
         """One row per configured model: used today, remaining, status. For the dashboard."""
+        snap = self.snapshot()
         rows = []
         for p in self.providers.values():
             for model, spec in p.models.items():
-                reqs, toks = self._usage(p.name, model, DAY)
+                _, reqs, toks = snap.used(p.name, model)
                 rows.append({
                     "provider": p.name, "model": model, "ref": p.ref(model),
                     "has_key": bool(p.api_key),
                     "used_requests": reqs, "used_tokens": toks,
                     "limit_rpd": spec.limits.rpd or p.account_limits.rpd,
-                    "remaining": self.remaining_today(p.name, model),
-                    "status": self.why_not(p.name, model) or "ok",
+                    "remaining": self.remaining_today(p.name, model, snap),
+                    "status": self.why_not(p.name, model, snap) or "ok",
                 })
         return rows

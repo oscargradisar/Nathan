@@ -10,15 +10,17 @@ model earns more points than beating a lower-rated one. A worker that didn't sho
 from __future__ import annotations
 
 import itertools
-import sqlite3
 import time
 from pathlib import Path
+
+from nathan.quota import open_db
 
 START = 1000.0
 K = 24.0  # how far one match moves a rating
 SLOW_AFTER_S = 10.0  # average answer times beyond this cost priority...
 SLOW_COST = 3.0      # ...this many Elo points per extra second
 GHOST_COST = 400.0   # models that don't deliver go to the back of the line
+ROWS_TTL_S = 2.0     # how long one read of the staff table is reused (see Staff._row)
 RANKS = [(1400, "Champion"), (1300, "Diamond"), (1200, "Platinum"), (1100, "Gold"),
          (1000, "Silver"), (900, "Bronze"), (float("-inf"), "Iron")]
 
@@ -36,7 +38,9 @@ class Staff:
     def __init__(self, path: Path | str = ":memory:") -> None:
         if path != ":memory:":
             Path(path).parent.mkdir(parents=True, exist_ok=True)
-        self.db = sqlite3.connect(str(path), check_same_thread=False)
+        self.db = open_db(path)
+        self._rows: dict[str, tuple] | None = None  # see _row()
+        self._rows_at = 0.0
         self.db.execute("""CREATE TABLE IF NOT EXISTS staff (
             ref TEXT PRIMARY KEY, elo REAL NOT NULL, jobs INTEGER NOT NULL DEFAULT 0,
             done INTEGER NOT NULL DEFAULT 0, no_shows INTEGER NOT NULL DEFAULT 0,
@@ -56,11 +60,26 @@ class Staff:
         row = self.db.execute("SELECT elo FROM staff WHERE ref = ?", (ref,)).fetchone()
         return row[0] if row else START
 
+    def _row(self, ref: str) -> tuple | None:
+        """(elo, done, no_shows, ms_sum) for one model, from a table read kept for a moment.
+        Picking models asks priority() and seconds() for every model several times per
+        request; one read of the small staff table answers them all. Our own writes reset
+        it, and the short expiry picks up writes from other Nathan processes."""
+        now = time.monotonic()
+        if self._rows is None or now - self._rows_at > ROWS_TTL_S:
+            self._rows = {r[0]: r[1:] for r in self.db.execute(
+                "SELECT ref, elo, done, no_shows, ms_sum FROM staff")}
+            self._rows_at = now
+        return self._rows.get(ref)
+
+    def _changed(self) -> None:
+        self.db.commit()
+        self._rows = None
+
     def priority(self, ref: str) -> float:
         """Who gets picked first: Elo, minus a cost for being slow or for not showing up.
         Quality alone made the slowest good model (36s a job) everyone's first pick."""
-        row = self.db.execute("SELECT elo, done, no_shows, ms_sum FROM staff WHERE ref = ?",
-                              (ref,)).fetchone()
+        row = self._row(ref)
         if row is None:
             return START
         elo, done, no_shows, ms_sum = row
@@ -73,15 +92,15 @@ class Staff:
 
     def seconds(self, ref: str) -> float | None:
         """Average answer time in seconds, or None if this model hasn't delivered yet."""
-        row = self.db.execute("SELECT ms_sum, done FROM staff WHERE ref = ?", (ref,)).fetchone()
-        return row[0] / row[1] / 1000 if row and row[1] else None
+        row = self._row(ref)
+        return row[3] / row[1] / 1000 if row and row[1] else None
 
     def record(self, ref: str, *, ok: bool, ms: float = 0.0) -> None:
         """One assignment: the worker either delivered or was a no-show."""
         self._ensure(ref)
         self.db.execute("UPDATE staff SET jobs = jobs + 1, done = done + ?, no_shows = no_shows + ?,"
                         " ms_sum = ms_sum + ? WHERE ref = ?", (int(ok), int(not ok), ms, ref))
-        self.db.commit()
+        self._changed()
 
     def log_work(self, ref: str, role: str, task: str, output: str) -> None:
         """Keep a sample of delivered work so managers can review real output later."""
@@ -134,7 +153,7 @@ class Staff:
             self.db.execute("UPDATE staff SET elo = elo + ?, wins = wins + ?, losses = losses + ?,"
                             " rated = rated + 1, score_sum = score_sum + ? WHERE ref = ?",
                             (delta[ref], won, lost, score, ref))
-        self.db.commit()
+        self._changed()
         return delta
 
     def board(self) -> list[dict]:

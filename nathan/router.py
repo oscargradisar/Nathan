@@ -14,12 +14,22 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from nathan.errors import NoModelAvailable
-from nathan.jsonutil import ask_json
+from nathan.jsonutil import race_json
 
 TaskType = Literal["chat", "factual", "code", "math", "writing", "research", "analysis"]
 Pattern = Literal["single", "race", "vote", "critique", "plan", "agent", "research", "code"]
 
-ROUTE_TIMEOUT_S = 8.0
+ROUTE_TIMEOUT_S = 5.0
+ROUTER_LANES = 3  # routers asked at once; the first valid answer wins
+
+# Things only the agent can do on this computer. Deliberately narrow: words like "tell",
+# "show me" or "run" start ordinary questions too ("tell me about the French revolution").
+_AGENT_VERBS = re.compile(r"^\s*(please\s+|can you\s+|could you\s+)?"
+                          r"(open|launch|play|message|text|dm|send|email|fly to|zoom)\b")
+# School work lives behind the Canvas tool. Plain "assignment" or "quiz" is not enough:
+# "variable assignment in Python" or "write a quiz about WW2" are ordinary questions.
+_SCHOOL = re.compile(r"\b(canvas|homework|pre-?lab|syllabus)\b"
+                     r"|\bmy\s+(\w+\s+)?(assignments?|quiz(zes)?)\b", re.IGNORECASE)
 
 # Which roster tags suit each task type (tags themselves live in providers.yaml)
 TAGS_FOR: dict[str, list[str]] = {
@@ -62,7 +72,7 @@ def heuristic_route(question: str) -> Route:
     def has(*keys: str) -> bool:
         return any(re.search(rf"\b{k}", q) for k in keys)
 
-    if re.match(r"^\s*(please\s+|can you\s+|could you\s+)?(open|launch|start|play|run|message|text|dm|send|email|tell|show me|fly to|zoom)\b", q) or has(
+    if _AGENT_VERBS.match(q) or has(
             "file", "folder", "workspace", "run python", "execute", "fetch", "http", "url"):
         r = Route(task_type="analysis", pattern="agent")
     elif has("research", "brief", "report", "compare", "overview", "survey") and words > 5:
@@ -87,17 +97,20 @@ def heuristic_route(question: str) -> Route:
 async def route(engine, question: str) -> Route:  # engine: nathan.engine.Engine
     # Routing is pure overhead to the person waiting, so the quickest models do it, and if
     # they dawdle the keyword rules decide instantly instead.
-    if re.search(r"\b(canvas|assignments?|homework|pre-?lab|syllabus|quiz(zes)?)\b", question, re.IGNORECASE):
+    if _SCHOOL.search(question):
         # School work lives behind the Canvas tool: go straight to the agent, no routing hop
         return Route(task_type="analysis", pattern="agent", reason="Canvas request", by="shortcut")
-    refs = engine.fastest(["cheap", "fast"])[:3]
+    refs = engine.fastest(["cheap", "fast"])[:ROUTER_LANES]
     if not refs:
         return heuristic_route(question)
     messages = [{"role": "system", "content": ROUTER_SYSTEM},
                 {"role": "user", "content": f"TASK:\n{question[:4000]}"}]
     try:
-        r, ref = await asyncio.wait_for(ask_json(engine.client, refs, messages, Route,
-                                                 max_tokens=300, temperature=0), ROUTE_TIMEOUT_S)
+        # All routers start at once, so one slow model can't eat the whole routing budget.
+        # temperature=0 keeps the answer stable, so the response cache can reuse it.
+        r, ref = await asyncio.wait_for(
+            race_json(engine.client, refs, messages, Route, lanes=len(refs),
+                      max_tokens=300, temperature=0), ROUTE_TIMEOUT_S)
     except (NoModelAvailable, TimeoutError):
         return heuristic_route(question)
     r.by = ref

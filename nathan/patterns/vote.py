@@ -22,6 +22,9 @@ JUDGE_SYSTEM = (
     "directly: do not mention the candidates, the panel, or that you are a judge."
 )
 
+QUORUM = 3  # this many answers are enough to judge...
+QUORUM_GRACE_S = 5.0  # ...after stragglers get at least this long to catch up
+
 
 @dataclass
 class Candidate:
@@ -55,9 +58,20 @@ def task_text(messages: list[Message]) -> str:
     return "\n\n".join(str(m["content"]) for m in messages if m["role"] in ("user", "system"))
 
 
+def quorum_size(lanes: int) -> int:
+    """Answers that are enough to judge: 3, or all but one lane for small panels."""
+    return max(1, min(QUORUM, lanes - 1))
+
+
 async def run_lanes(client: Client, refs: list[str], messages: list[Message],
-                    spares: list[str] | None = None, **kwargs: Any) -> list[Candidate]:
+                    spares: list[str] | None = None, *, grace: float | None = None,
+                    **kwargs: Any) -> list[Candidate]:
+    """Ask every lane at once. Once a quorum has answered, stragglers get a short grace
+    period (`grace` seconds, default: as long as the quorum took, at least
+    QUORUM_GRACE_S) and are then cancelled, so one hung model can't hold up the judge."""
     pool = list(spares or [])
+    loop = asyncio.get_running_loop()
+    started = loop.time()
 
     async def lane(ref: str) -> Candidate:
         current: str | None = ref
@@ -73,7 +87,27 @@ async def run_lanes(client: Client, refs: list[str], messages: list[Message],
             current = pool.pop(0) if pool else None  # take a spare model (shared pool)
         return Candidate(ref, error="; ".join(errors))
 
-    return list(await asyncio.gather(*(lane(r) for r in refs)))
+    tasks = [asyncio.create_task(lane(r)) for r in refs]
+    pending = set(tasks)
+    deadline: float | None = None
+    try:
+        while pending:
+            timeout = None if deadline is None else max(0.0, deadline - loop.time())
+            _, pending = await asyncio.wait(pending, timeout=timeout,
+                                            return_when=asyncio.FIRST_COMPLETED)
+            if deadline is not None and loop.time() >= deadline:
+                break  # grace is over: judge what arrived
+            answered = sum(1 for t in tasks if t.done() and t.result().ok)
+            if deadline is None and answered >= quorum_size(len(refs)):
+                took = loop.time() - started
+                deadline = loop.time() + (grace if grace is not None
+                                          else max(QUORUM_GRACE_S, took))
+    finally:
+        for t in pending:
+            t.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)  # let them finish cancelling
+    return [t.result() if not t.cancelled() else Candidate(ref, error="too slow")
+            for t, ref in zip(tasks, refs, strict=True)]
 
 
 async def judge(client: Client, task: str, candidates: list[Candidate],

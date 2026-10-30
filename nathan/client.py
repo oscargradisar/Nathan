@@ -39,11 +39,14 @@ from nathan.errors import (
     ProviderDown,
     QuotaExceeded,
 )
+from nathan.quota import ACCOUNT, AUTH_BLOCK_S, auth_reason
 
 Message = dict[str, Any]
 
 # A 429 with a Retry-After longer than this is treated as "quota gone", not "wait a bit".
-MAX_RETRY_WAIT_S = 20.0
+# Kept short: every caller has other models to try, so moving on beats sleeping.
+MAX_RETRY_WAIT_S = 3.0
+NO_RETRY_AFTER_BLOCK_S = 60.0  # how long a 429 without Retry-After benches the model
 
 
 @dataclass(frozen=True)
@@ -118,12 +121,18 @@ def retry_after_seconds(headers: httpx.Headers | dict[str, str] | None) -> float
 
 TIMEOUT_BENCH_S = 300.0  # a model that timed out sits out this long
 
-_THINKING = re.compile(r"<(think|thought|thinking)>.*?(</\1>|$)", re.DOTALL | re.IGNORECASE)
+# Only a block at the very start is reasoning; a tag later on is part of the answer
+# (an XML example, prompt-writing help), so it must survive.
+_THINKING = re.compile(r"^\s*<(think|thought|thinking)>.*?(</\1>|$)", re.DOTALL | re.IGNORECASE)
 
 
 def strip_thinking(text: str) -> str:
     """Some models (Gemma, DeepSeek R1, Qwen) put their private reasoning in tags."""
-    return _THINKING.sub("", text).strip()
+    return _THINKING.sub("", text, count=1).strip()
+
+
+def _lower(headers: Any) -> dict[str, str]:
+    return {k.lower(): v for k, v in headers.items()} if headers else {}
 
 async def _drop_placeholder_key(request: httpx.Request) -> None:
     if request.headers.get("Authorization") == f"Bearer {NO_KEY}":
@@ -161,10 +170,14 @@ class Client:
             raise NathanError(f"unknown provider {name!r}", provider=name) from None
 
     def _sdk(self, name: str) -> AsyncOpenAI:
-        if name not in self._clients:
-            p = self.provider(name)
-            if not p.api_key:
-                raise AuthError(f"no API key for {name} (set {p.key_env})", provider=name)
+        p = self.provider(name)
+        if not p.api_key:
+            raise AuthError(f"no API key for {name} (set {p.key_env})", provider=name)
+        cached = self._clients.get(name)
+        # Rebuilt when the owner saves a new key while the app runs; otherwise the old key
+        # would keep getting 401s until a restart. The old client isn't closed: requests
+        # already in flight may still be using it.
+        if cached is None or cached.api_key != p.api_key:
             http = self.http_client
             if p.api_key == NO_KEY:
                 # Keyless gateways reject any Authorization header, but the SDK always adds one
@@ -229,51 +242,41 @@ class Client:
         attempt = 0
         while True:
             start = time.perf_counter()
+            # Providers count every request we send, failed, retried or cancelled ones too,
+            # so each attempt is recorded. `finally` also runs when a race or hedge cancels us.
+            tokens, headers = 0, {}
             try:
                 raw = await sdk.chat.completions.with_raw_response.create(**params)
+                headers = _lower(raw.headers)
                 completion = raw.parse()
-                headers = {k.lower(): v for k, v in raw.headers.items()}
                 result = _to_result(completion, r, headers, time.perf_counter() - start)
-                if self.quota is not None:
-                    self.quota.record(r.provider, r.model, result.total_tokens, headers)
+                tokens = result.total_tokens
                 if cache_key is not None and result.text:
                     self.cache.put(cache_key, result)  # type: ignore[union-attr]
                 return result
 
             except APIStatusError as e:
+                headers = _lower(e.response.headers)  # 429s carry x-ratelimit-* hints too
                 status = e.status_code
-                msg = f"{r}: HTTP {status} {_short(e)}"
-                if status == 429:
-                    wait = retry_after_seconds(e.response.headers)
-                    if attempt < self.max_retries and (wait is None or wait <= MAX_RETRY_WAIT_S):
-                        await self._sleep(wait if wait is not None else self._backoff(attempt))
-                        attempt += 1
-                        continue
-                    if self.quota is not None:
-                        self.quota.block(r.provider, r.model, wait or 60.0, "429")
-                    raise QuotaExceeded(msg, provider=r.provider, model=r.model,
-                                        retry_after=wait) from e
-                if status >= 500:
-                    if attempt < self.max_retries:
-                        await self._sleep(self._backoff(attempt))
-                        attempt += 1
-                        continue
-                    raise ProviderDown(msg, provider=r.provider, model=r.model) from e
-                if status in (401, 403):
-                    raise AuthError(msg, provider=r.provider, model=r.model) from e
-                if status == 404 or "model_not_found" in str(e.body or ""):
-                    if self.quota is not None:
-                        self.quota.mark_gone(r.provider, r.model)
-                    raise ModelGone(msg, provider=r.provider, model=r.model) from e
-                raise BadRequest(msg, provider=r.provider, model=r.model) from e
+                wait = retry_after_seconds(e.response.headers)
+                if status == 429 and attempt < self.max_retries and (
+                        wait is None or wait <= MAX_RETRY_WAIT_S):
+                    pause = wait if wait is not None else self._backoff(attempt)
+                    # Block before sleeping, so parallel lanes pick another model meanwhile
+                    self._block(r, pause, "429")
+                    await self._sleep(pause)
+                    attempt += 1
+                    continue
+                if status >= 500 and attempt < self.max_retries:
+                    await self._sleep(self._backoff(attempt))
+                    attempt += 1
+                    continue
+                raise self._status_error(r, e) from e
 
             except APITimeoutError as e:
                 # No answer within the timeout: retrying the same model would make the
                 # whole task wait again. Bench it briefly and let the caller try the next one.
-                if self.quota is not None:
-                    self.quota.block(r.provider, r.model, TIMEOUT_BENCH_S, "timeout")
-                raise ProviderDown(f"{r}: no answer within {self.timeout:.0f}s",
-                                   provider=r.provider, model=r.model) from e
+                raise self._timeout_error(r) from e
 
             except APIConnectionError as e:
                 if attempt < self.max_retries:
@@ -282,6 +285,10 @@ class Client:
                     continue
                 raise ProviderDown(f"{r}: {type(e).__name__}", provider=r.provider,
                                    model=r.model) from e
+
+            finally:
+                if self.quota is not None:
+                    self.quota.record(r.provider, r.model, tokens, headers)
 
     async def stream(
         self,
@@ -294,8 +301,10 @@ class Client:
         """Yield text pieces as they arrive (used by the web UI's live lanes).
 
         No retries mid-stream: if the stream breaks, the caller falls back to another model.
+        Quota bookkeeping matches chat(), so the next run avoids a model that just failed.
         """
         r = ModelRef.parse(ref)
+        self.provider(r.provider)
         if self.quota is not None:
             self.quota.check(r.provider, r.model)
         params: dict[str, Any] = {"model": r.model, "messages": messages, "stream": True}
@@ -304,9 +313,10 @@ class Client:
         if temperature is not None:
             params["temperature"] = temperature
         sdk = self._sdk(r.provider)
-        chars = 0
+        chars, headers = 0, {}
         try:
             stream = await sdk.chat.completions.create(**params)
+            headers = _lower(getattr(getattr(stream, "response", None), "headers", None))
             async for chunk in stream:
                 if not chunk.choices:
                     continue
@@ -315,24 +325,53 @@ class Client:
                     chars += len(piece)
                     yield piece
         except APIStatusError as e:
-            if e.status_code == 429:
-                raise QuotaExceeded(f"{r}: HTTP 429", provider=r.provider, model=r.model,
-                                    retry_after=retry_after_seconds(e.response.headers)) from e
-            if e.status_code == 404:
-                if self.quota is not None:
-                    self.quota.mark_gone(r.provider, r.model)
-                raise ModelGone(f"{r}: HTTP 404", provider=r.provider, model=r.model) from e
-            if e.status_code in (401, 403):
-                raise AuthError(f"{r}: HTTP {e.status_code}", provider=r.provider,
-                                model=r.model) from e
-            raise ProviderDown(f"{r}: HTTP {e.status_code}", provider=r.provider,
-                               model=r.model) from e
-        except (APIConnectionError, APITimeoutError) as e:
+            headers = _lower(e.response.headers)
+            raise self._status_error(r, e) from e
+        except APITimeoutError as e:
+            raise self._timeout_error(r) from e
+        except APIConnectionError as e:
             raise ProviderDown(f"{r}: {type(e).__name__}", provider=r.provider,
                                model=r.model) from e
+        finally:
+            # Also runs on errors, cancellation and when the reader stops early.
+            if self.quota is not None:
+                # Streams don't always report usage; ~4 characters per token is a fair estimate.
+                self.quota.record(r.provider, r.model, chars // 4, headers)
+
+    # ---- error bookkeeping (shared by chat and stream) -----------------------------------
+
+    def _block(self, r: ModelRef, seconds: float, reason: str) -> None:
         if self.quota is not None:
-            # Streams don't always report usage; ~4 characters per token is a fair estimate.
-            self.quota.record(r.provider, r.model, chars // 4, {})
+            self.quota.block(r.provider, r.model, seconds, reason)
+
+    def _status_error(self, r: ModelRef, e: APIStatusError) -> NathanError:
+        """Turn a final HTTP error into a typed error, and note what it tells us for next time."""
+        status = e.status_code
+        msg = f"{r}: HTTP {status} {_short(e)}"
+        if status == 429:
+            wait = retry_after_seconds(e.response.headers)
+            # Retry-After: 0 means "go ahead now", so only a missing header gets the default
+            self._block(r, NO_RETRY_AFTER_BLOCK_S if wait is None else wait, "429")
+            return QuotaExceeded(msg, provider=r.provider, model=r.model, retry_after=wait)
+        if status >= 500:
+            return ProviderDown(msg, provider=r.provider, model=r.model)
+        if status in (401, 403):
+            if self.quota is not None:
+                # A rejected key fails for every model of this provider: bench them all,
+                # instead of spending one doomed request per model on every run
+                key = self.provider(r.provider).api_key
+                self.quota.block(r.provider, ACCOUNT, AUTH_BLOCK_S, auth_reason(key))
+            return AuthError(msg, provider=r.provider, model=r.model)
+        if status == 404 or "model_not_found" in str(e.body or ""):
+            if self.quota is not None:
+                self.quota.mark_gone(r.provider, r.model)
+            return ModelGone(msg, provider=r.provider, model=r.model)
+        return BadRequest(msg, provider=r.provider, model=r.model)
+
+    def _timeout_error(self, r: ModelRef) -> ProviderDown:
+        self._block(r, TIMEOUT_BENCH_S, "timeout")
+        return ProviderDown(f"{r}: no answer within {self.timeout:.0f}s",
+                            provider=r.provider, model=r.model)
 
 
 def _short(e: APIStatusError) -> str:

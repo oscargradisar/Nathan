@@ -137,3 +137,44 @@ async def test_engine_race(make_engine):
     engine = make_engine(lambda r, m, **k: f"from {r}")
     ans = await engine.ask("q", mode="race")
     assert ans.text.startswith("from ")
+
+
+async def test_vote_judges_without_a_hung_lane_after_grace():
+    cancelled = []
+
+    async def responder(ref, messages, **kw):
+        if "CANDIDATE" in last_user(messages):
+            assert "CANDIDATE C" in last_user(messages) and "CANDIDATE D" not in last_user(messages)
+            return "merged"
+        if ref == "delta/d-big":
+            try:
+                await asyncio.sleep(30)  # hung model
+            except asyncio.CancelledError:
+                cancelled.append(ref)
+                raise
+        return f"raw {ref}"
+
+    c = ScriptedClient(responder)
+    refs = ["alpha/a-big", "beta/b-big", "gamma/g-big", "delta/d-big"]
+    result = await asyncio.wait_for(
+        vote(c, refs, MSG, judges=["alpha/a-big"], grace=0.05), timeout=5)
+    assert result.answer == "merged" and cancelled == ["delta/d-big"]
+    slow = next(cand for cand in result.candidates if cand.ref == "delta/d-big")
+    assert slow.error == "too slow" and not slow.ok
+
+
+async def test_vote_waits_for_quorum_before_grace():
+    async def responder(ref, messages, **kw):
+        if "CANDIDATE" in last_user(messages):
+            return "merged"
+        if ref == "beta/b-big":
+            await asyncio.sleep(0.1)  # slower, but the third answer completes the quorum
+        if ref == "delta/d-big":
+            await asyncio.sleep(30)
+        return f"raw {ref}"
+
+    c = ScriptedClient(responder)
+    refs = ["alpha/a-big", "beta/b-big", "gamma/g-big", "delta/d-big"]
+    result = await vote(c, refs, MSG, judges=["alpha/a-big"], grace=0.0)
+    assert sorted(cand.ref for cand in result.candidates if cand.ok) == [
+        "alpha/a-big", "beta/b-big", "gamma/g-big"]

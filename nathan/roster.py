@@ -30,10 +30,23 @@ class Roster:
             return False
         return self.quota is None or self.quota.available(provider, model)
 
-    def candidates(self, tags: Iterable[str] | None = None) -> list[str]:
+    def fits(self, ref: str, tags: Iterable[str] | None) -> bool:
+        """Does this model carry at least one of `tags`? (No tags: everything fits.)"""
+        if not tags:
+            return True
+        provider, _, model = ref.partition("/")
+        p = self.providers.get(provider)
+        spec = p.models.get(model) if p else None
+        return spec is not None and bool(set(tags) & set(spec.tags))
+
+    def candidates(self, tags: Iterable[str] | None = None, *, others: bool = False) -> list[str]:
         """Usable models that have at least one of `tags` (all models if tags is empty),
-        best first: more matching tags, better eval score, more capacity left."""
+        best first: more matching tags, better eval score, more capacity left.
+        With `others`, every other usable model follows the matching ones (a full fallback
+        chain from one scan, instead of scanning once for the tags and again for the rest)."""
         wanted = set(tags or [])
+        # One snapshot answers the quota questions for every model (a few queries, not ~250)
+        snap = self.quota.snapshot() if self.quota is not None else None
         scored: list[tuple[tuple, str]] = []
         order = 0
         for p in self.providers.values():
@@ -43,11 +56,11 @@ class Roster:
                 order += 1
                 ref = p.ref(model)
                 matches = len(wanted & set(spec.tags)) if wanted else 1
-                if wanted and matches == 0:
+                if wanted and matches == 0 and not others:
                     continue
-                if self.quota is not None and not self.quota.available(p.name, model):
+                if self.quota is not None and not self.quota.available(p.name, model, snap):
                     continue
-                remaining = self.quota.remaining_today(p.name, model) if self.quota else None
+                remaining = self.quota.remaining_today(p.name, model, snap) if self.quota else None
                 capacity = remaining if remaining is not None else 10**6
                 # Very small daily budgets (e.g. OpenRouter's 50/day) are kept for last.
                 score = (self.score(ref) if self.score else None) or 0.0

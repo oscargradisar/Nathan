@@ -10,12 +10,12 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import json
-import sqlite3
 import time
 from pathlib import Path
 from typing import Any
 
 from nathan.client import ChatResult
+from nathan.quota import open_db
 
 TTL_S = 24 * 3600
 
@@ -29,7 +29,7 @@ class ResponseCache:
     def __init__(self, path: Path | str = ":memory:", ttl: float = TTL_S, clock=time.time) -> None:
         if path != ":memory:":
             Path(path).parent.mkdir(parents=True, exist_ok=True)
-        self.db = sqlite3.connect(str(path), check_same_thread=False)
+        self.db = open_db(path)
         self.db.execute("CREATE TABLE IF NOT EXISTS cache (key TEXT PRIMARY KEY, ts REAL, result TEXT)")
         self.ttl, self.clock = ttl, clock
         self.hits = 0

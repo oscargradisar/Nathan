@@ -104,3 +104,46 @@ def test_persists_across_instances(tmp_path):
     q.record("p", "m", 1, {})
     q2 = QuotaManager(providers, tmp_path / "q.sqlite", clock=clock)
     assert not q2.available("p", "m")
+
+
+def test_uses_wal_journal(tmp_path):
+    q, _, _ = make(tmp_path)
+    assert q.db.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+
+
+def test_old_calls_are_pruned_on_startup(tmp_path):
+    q, providers, clock = make(tmp_path)
+    q.record("p", "m", 1, {})
+    clock.t += 3 * 86400
+    q.record("p", "m", 1, {})
+    q2 = QuotaManager(providers, tmp_path / "q.sqlite", clock=clock)
+    assert q2.db.execute("SELECT COUNT(*) FROM calls").fetchone()[0] == 1
+
+
+def test_snapshot_matches_single_checks(tmp_path):
+    from nathan.config import Limits
+    q, providers, _ = make(tmp_path, {"p": {"m1": [], "m2": [], "m3": []}},
+                               account=Limits(rpd=5))
+    providers["p"].models["m1"].limits.rpm = 1
+    q.record("p", "m1", 3, {})
+    q.record("p", "m2", 4, {"x-ratelimit-remaining-requests": "9"})
+    q.block("p", "m3", 30, "429")
+    snap = q.snapshot()
+    for m in ("m1", "m2", "m3"):
+        assert q.why_not("p", m, snap) == q.why_not("p", m)
+        assert q.remaining_today("p", m, snap) == q.remaining_today("p", m)
+    assert "requests/min" in q.why_not("p", "m1", snap)
+    assert q.remaining_today("p", "m2", snap) == 3  # account: 5 a day, 2 used
+    assert snap.used("p", None) == (2, 2, 7)
+
+
+def test_auth_block_covers_provider_until_key_changes(tmp_path):
+    from nathan.quota import ACCOUNT, auth_reason
+    q, providers, _ = make(tmp_path, {"p": {"m1": [], "m2": []}})
+    q.block("p", ACCOUNT, 3600, auth_reason(providers["p"].api_key))
+    assert "auth" in q.why_not("p", "m2")
+    with pytest.raises(QuotaExceeded) as ei:
+        q.check("p", "m1")
+    assert ei.value.retry_after == pytest.approx(3600)
+    providers["p"].key_override = "a-brand-new-key"
+    assert q.available("p", "m1") and q.available("p", "m2")

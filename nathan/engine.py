@@ -74,21 +74,19 @@ class Engine:
 
     def chain(self, tags: list[str] | None = None, first: list[str] | None = None) -> list[str]:
         """A fallback chain: the given models first, then every usable model by tag fit."""
-        out = list(first or [])
-        for ref in self.roster.candidates(tags) + self.roster.candidates(None):
-            if ref not in out:
-                out.append(ref)
-        return out
+        return list(dict.fromkeys(list(first or []) + self.roster.candidates(tags, others=True)))
 
     def fastest(self, tags: list[str] | None = None) -> list[str]:
         """Usable models that fit `tags`, quickest measured first (unknown counts as average).
         For jobs where waiting is the main cost: routing, quick answers."""
-        refs = self.roster.candidates(tags) or self.roster.candidates(None)
+        everyone = self.roster.candidates(tags, others=True)  # one scan, fitting models first
+        refs = [r for r in everyone if self.roster.fits(r, tags)] or everyone
         return sorted(refs, key=lambda r: self.staff.seconds(r) or UNKNOWN_SPEED_S)
 
     def judges(self, exclude: list[str] | None = None) -> list[str]:
-        j = [r for r in self.roster.candidates(["judge"]) if r not in (exclude or [])]
-        return j + [r for r in self.roster.candidates(["judge"]) if r not in j]
+        """Judge-tagged models; excluded ones go last instead of disappearing."""
+        judges, skip = self.roster.candidates(["judge"]), set(exclude or [])
+        return [r for r in judges if r not in skip] + [r for r in judges if r in skip]
 
     # ---- one question in, one answer out ----------------------------------------------------
 
